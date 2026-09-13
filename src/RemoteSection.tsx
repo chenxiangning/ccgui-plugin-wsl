@@ -265,7 +265,13 @@ export function WslRemoteSection({
               </span>
             </button>
             {openDistro === d.name && selected && (
-              <DistroPanel distro={d} link={link(selected)} locale={locale} />
+              <DistroPanel
+                distro={d}
+                link={link(selected)}
+                prefs={prefs}
+                updatePrefs={updatePrefs}
+                locale={locale}
+              />
             )}
           </div>
         ))}

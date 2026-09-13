@@ -315,6 +315,65 @@ export async function probeEnginesRemote(
   return parseProbeRows(r.stdout, bins);
 }
 
+/** 目录懒加载(`ls -1ap`:目录带尾 `/`;`--` 挡 `-` 开头路径;过滤 . / ..)。
+ *  对齐 Rust wsl_list_dir 的脚本与解析。 */
+export interface DirEntry {
+  name: string;
+  isDir: boolean;
+}
+
+export async function listDirRemote(link: SshLink, distro: string, path: string): Promise<DirEntry[]> {
+  assertSafeToken("发行版名", distro);
+  // 路径白名单:ASCII 且无引号/空格(bash 双引号内安全;~ 起始允许)。
+  if (!path || /[^\x20-\x7e]/.test(path) || /["'\\]/.test(path)) {
+    throw new Error("路径含不支持的字符(暂不支持空格与引号)");
+  }
+  const script = `ls -1ap -- "${path}" 2>/dev/null || echo "__WSL_LS_ERR__"`;
+  const r = await sshRun(link, wslBashPayload(distro, script));
+  if (r.stdout.includes("__WSL_LS_ERR__")) throw new Error(`目录不存在或不可读: ${path}`);
+  return r.stdout
+    .split(/\r?\n/)
+    .map((l) => l.replace(/\r$/, ""))
+    .filter((l) => l && l !== "./" && l !== "../" && l !== "." && l !== "..")
+    .map((l) => ({ name: l.replace(/\/$/, ""), isDir: l.endsWith("/") }));
+}
+
+/** 远程文件文本读取(对齐 Rust wsl_read_file_text 协议:首个 size= 行 + b64;
+ *  杂散 wsl 警告行跳过)。超 maxBytes 截断(truncated=true,不返回内容)。 */
+export interface RemoteFileText {
+  size: number;
+  content: string | null;
+  truncated: boolean;
+}
+
+export async function readFileRemote(
+  link: SshLink,
+  distro: string,
+  path: string,
+  maxBytes: number,
+): Promise<RemoteFileText> {
+  assertSafeToken("发行版名", distro);
+  if (!path || /[^\x20-\x7e]/.test(path) || /["'\\]/.test(path)) {
+    throw new Error("路径含不支持的字符(暂不支持空格与引号)");
+  }
+  const script = `f="${path}"; [ -f "$f" ] || { echo missing; exit 0; }; sz=$(wc -c < "$f"); echo "size=$sz"; if [ "$sz" -le ${maxBytes} ]; then base64 < "$f"; fi`;
+  const r = await sshRun(link, wslBashPayload(distro, script));
+  const text = r.stdout;
+  if (/^missing$/m.test(text.trim())) throw new Error("文件不存在");
+  const m = /size=(\d+)/.exec(text);
+  if (!m) throw new Error("无法读取文件大小");
+  const size = Number(m[1]);
+  if (size > maxBytes) return { size, content: null, truncated: true };
+  // 取首个 size= 行之后的全部内容,拼回 b64(base64 输出可能被 PTY 折行,剥空白)
+  const b64 = text.slice((m.index ?? 0) + m[0].length).replace(/[\s]/g, "");
+  try {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    return { size, content: new TextDecoder("utf-8", { fatal: false }).decode(bytes), truncated: false };
+  } catch {
+    throw new Error("文件内容解码失败");
+  }
+}
+
 /** 远程 WSL 探测（对齐 Rust wsl_remote_info）：发行版表 + 运行态 + 版本，
  *  三条独立命令各一次连接（不在宿主 shell 里做 `;` 串接）。
  *  远程不跑 -e 探针（可能触发发行版冷启动拖慢探测），$HOME/用户为 null。 */

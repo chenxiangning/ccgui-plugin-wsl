@@ -56,6 +56,18 @@ export interface Copy {
   probeDesc: string;
   available: string;
   notFound: string;
+  fileNotWsl: string;
+  fileHostMissing: string;
+  fileLoading: string;
+  fileEmptyDir: string;
+  fileTooLarge: string;
+  dirTitle: string;
+  browse: string;
+  dirDesc: string;
+  goUp: string;
+  addWorkspaceBtn: string;
+  addedHint: (path: string) => string;
+  fileTab: string;
 }
 
 export function copy(locale: string): Copy {
@@ -102,6 +114,18 @@ export function copy(locale: string): Copy {
       probeDesc: "检出 = 该【CLI】在发行版内可直接调用;路径经登录 shell PATH 解析。",
       available: "可用",
       notFound: "未检出",
+      fileNotWsl: "非 WSL 工作区(在 WSL 主机设置页「添加工作区」登记后,这里展示发行版内文件)。",
+      fileHostMissing: "该工作区的远程主机已删除,无法读取文件。请重新登记工作区。",
+      fileLoading: "加载中…",
+      fileEmptyDir: "(空目录)",
+      fileTooLarge: "文件超过 512KB,暂不支持预览。",
+      dirTitle: "起始目录 / 添加工作区",
+      browse: "浏览目录",
+      dirDesc: "逐级进入项目目录后点【添加工作区】;已登记的目录会在聊天右侧面板展示【发行版内文件】。",
+      goUp: "上一级",
+      addWorkspaceBtn: "添加工作区",
+      addedHint: (path) => `已登记 ${path};在聊天右侧面板查看文件。`,
+      fileTab: "WSL 文件",
     };
   }
   return {
@@ -149,5 +173,19 @@ export function copy(locale: string): Copy {
       "Detected = the 【CLI】 can be invoked inside the distro; resolved via login-shell PATH.",
     available: "Available",
     notFound: "Not found",
+    fileNotWsl:
+      "Not a WSL workspace (register it via \"Add workspace\" in the WSL Hosts settings section to browse distro files here).",
+    fileHostMissing: "The remote host for this workspace was deleted; files are unreadable. Re-register the workspace.",
+    fileLoading: "Loading…",
+    fileEmptyDir: "(empty directory)",
+    fileTooLarge: "File exceeds 512KB; preview not supported.",
+    dirTitle: "Start directory / Add workspace",
+    browse: "Browse",
+    dirDesc:
+      "Navigate into the project directory and click 【Add workspace】; registered dirs get a 【distro file】 browser in the chat side panel.",
+    goUp: "Up",
+    addWorkspaceBtn: "Add workspace",
+    addedHint: (path) => `Registered ${path}; open the chat side panel to browse files.`,
+    fileTab: "WSL Files",
   };
 }

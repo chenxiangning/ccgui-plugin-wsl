@@ -1,11 +1,11 @@
 /**
- * WSL 主机设置段 —— tmd-cli 中央 tab 卡（WslCard）的 codemoss 移植。
+ * WSL 主机设置段 —— tmd-cli 中央 tab 卡(WslCard)的 codemoss 移植。
  *
- * 两段共存（tmd 2026-09-12 验收裁决后形态）：
- * - 本机段（仅本机 WSL 可用时渲染，即 Windows）：发行版枚举、设默认、重新检测；
- * - 远程段：经 SSH 连 Windows 宿主（插件自簿主机 + 手动添加表单），
- *   发行版行展开 DistroPanel（引擎探针）。
- * tmd 的「添加 WSL 工作区」「SSH 进入」依赖宿主工作区/会话面，SDK 无对应挂点，裁除。
+ * 两段共存(tmd 2026-09-12 验收裁决后形态):
+ * - 本机段(仅本机 WSL 可用时渲染,即 Windows):发行版枚举、设默认、重新检测;
+ * - 远程段:经 SSH 连 Windows 宿主(插件自簿主机 + 手动添加表单),
+ *   发行版行展开 DistroPanel(引擎探针 / 目录浏览 / 添加工作区)。
+ * tmd 的「SSH 进入」依赖宿主会话面 —— 由宿主 spawn 通道适配(见 README),面板不涉及。
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -15,7 +15,9 @@ import { loadPrefs, savePrefs, type WslPrefs } from "./store";
 import { collectLocal, setDefaultDistro, type WslDistro, type WslInfo } from "./wsl";
 import { WslRemoteSection } from "./RemoteSection";
 
-/** 卡头状态行（本机检测态 / 本机不可用时的远程提示）。 */
+const EMPTY_PREFS: WslPrefs = { defaultDistro: "", remoteHostId: "", hosts: [], workspaces: {} };
+
+/** 卡头状态行(本机检测态 / 本机不可用时的远程提示)。 */
 function CardStatus({
   loading,
   info,
@@ -42,7 +44,7 @@ function CardStatus({
   );
 }
 
-/** 本机段：发行版行（设默认）+ 显示全部 + 事实行 + 动作。 */
+/** 本机段:发行版行(设默认)+ 显示全部 + 事实行 + 动作。 */
 function LocalSection({
   info,
   loading,
@@ -110,12 +112,12 @@ export function WslCard({ locale }: { locale: string }) {
   const [prefs, setPrefs] = useState<WslPrefs | null>(null);
 
   useEffect(() => {
-    void loadPrefs().then(setPrefs).catch(() => setPrefs({ defaultDistro: "", remoteHostId: "", hosts: [] }));
+    void loadPrefs().then(setPrefs).catch(() => setPrefs(EMPTY_PREFS));
   }, []);
 
   const updatePrefs = useCallback((patch: Partial<WslPrefs>) => {
     setPrefs((prev) => {
-      const next = { ...(prev ?? { defaultDistro: "", remoteHostId: "", hosts: [] }), ...patch };
+      const next = { ...EMPTY_PREFS, ...prev, ...patch };
       void savePrefs(next).catch(() => {});
       return next;
     });
@@ -128,7 +130,7 @@ export function WslCard({ locale }: { locale: string }) {
       try {
         r = await collectLocal();
       } catch {
-        /* bridge 不可用/非桌面端：落不可用。 */
+        /* bridge 不可用/非桌面端:落不可用。 */
       }
       setInfo(r && r.available ? r : null);
     })().finally(() => setLoading(false));
@@ -187,9 +189,7 @@ export function WslCard({ locale }: { locale: string }) {
             t={t}
           />
         )}
-        {prefs && (
-          <WslRemoteSection prefs={prefs} updatePrefs={updatePrefs} locale={locale} />
-        )}
+        {prefs && <WslRemoteSection prefs={prefs} updatePrefs={updatePrefs} locale={locale} />}
       </div>
     </section>
   );

@@ -316,3 +316,77 @@
   color: var(--wsl-fg);
   font: inherit;
 }
+
+/* ---- WSL 文件面板(panel-tab) ---- */
+.wsl-file-root {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 2px;
+  height: 100%;
+  box-sizing: border-box;
+}
+.wsl-file-crumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.wsl-file-crumb code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--wsl-fg-muted);
+}
+.wsl-file-tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--wsl-border);
+  border-radius: var(--wsl-radius-sm);
+  padding: 2px;
+}
+.wsl-file-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.wsl-file-row:hover {
+  background: var(--wsl-bg-hover);
+}
+.wsl-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wsl-file-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+}
+.wsl-file-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 50%;
+}
+.wsl-file-preview pre {
+  margin: 0;
+  overflow: auto;
+  border: 1px solid var(--wsl-border);
+  border-radius: var(--wsl-radius-sm);
+  background: var(--wsl-bg-input);
+  padding: 6px 8px;
+  font-family: var(--wsl-mono, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

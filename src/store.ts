@@ -2,7 +2,7 @@ import { getHostCtx } from "./host";
 
 /** 插件 KV 持久化(ctx.storage 单键对象;react-doctor store.ts 同款思路)。
  *  tmd 把 defaultDistro/remoteHostId 放宿主 settings.wsl 域 —— 本插件无宿主
- *  settings 面,三值收敛进自己的 KV。 */
+ *  settings 面,全部收敛进自己的 KV。 */
 
 export interface WslHostEntry {
   id: string;
@@ -15,12 +15,19 @@ export interface WslHostEntry {
   password?: string;
 }
 
+export interface WslWorkspaceMeta {
+  hostId: string;
+  distro: string;
+}
+
 export interface WslPrefs {
   /** 卡内「设默认」记住的发行版(空串 = 显示全部)。 */
   defaultDistro: string;
   /** 远程下拉当前选中的主机 id。 */
   remoteHostId: string;
   hosts: WslHostEntry[];
+  /** 插件登记的 WSL 工作区:path → 元数据(panel-tab 文件面板据此接管)。 */
+  workspaces: Record<string, WslWorkspaceMeta>;
 }
 
 const KEY = "prefs";
@@ -40,10 +47,22 @@ function sanitizePrefs(v: unknown): WslPrefs {
         }))
         .filter((h) => h.id && h.host && h.user)
     : [];
+  const workspaces: Record<string, WslWorkspaceMeta> = {};
+  if (typeof p.workspaces === "object" && p.workspaces !== null) {
+    for (const [k, v] of Object.entries(p.workspaces)) {
+      if (typeof k === "string" && k && typeof v === "object" && v !== null) {
+        const meta = v as Partial<WslWorkspaceMeta>;
+        if (meta.hostId && meta.distro) {
+          workspaces[k] = { hostId: String(meta.hostId), distro: String(meta.distro) };
+        }
+      }
+    }
+  }
   return {
     defaultDistro: typeof p.defaultDistro === "string" ? p.defaultDistro.slice(0, 100) : "",
     remoteHostId: typeof p.remoteHostId === "string" ? p.remoteHostId.slice(0, 100) : "",
     hosts,
+    workspaces,
   };
 }
 
