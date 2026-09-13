@@ -180,7 +180,27 @@ export function engineProbeScript(bins: string[]): string {
   );
 }
 
-/** 解析 `bin:path` 行协议；/mnt/* = Windows 互操作误检，视为未检出。 */
+/** 解析 `bin:path` 行协议 → 每个请求的 bin 恰好一行(缺行 = 未检出)。
+ *  仅认请求过的 bins:wsl.exe 的杂散输出(冷启动提示/localhost 代理警告,
+ *  经 PTY+lossy 常变乱码)一律不认;/mnt/* = Windows 互操作误检,视为未检出。 */
+export function parseProbeRows(text: string, bins: string[]): EngineProbe[] {
+  const allow: Record<string, true> = {};
+  for (const b of bins) allow[b] = true;
+  const found: Record<string, string | null> = {};
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const i = line.indexOf(":");
+    if (i <= 0) continue;
+    const bin = line.slice(0, i);
+    if (!(bin in allow) || bin in found) continue;
+    const path = line.slice(i + 1);
+    found[bin] = path && !path.startsWith("/mnt/") ? path : null;
+  }
+  return bins.map((bin) => ({ bin, path: found[bin] ?? null }));
+}
+
+/** 按行解析不过滤(tmd 行为;插件内一律走 parseProbeRows)。 */
 export function parseProbeLines(text: string): EngineProbe[] {
   const out: EngineProbe[] = [];
   for (const raw of text.split(/\r?\n/)) {
@@ -195,11 +215,11 @@ export function parseProbeLines(text: string): EngineProbe[] {
   return out;
 }
 
-/** 发行版内引擎探针（本机）。`-e` 直 exec 不过 shell，argv 逐字透传（无引号损耗）。 */
+/** 发行版内引擎探针(本机)。`-e` 直 exec 不过 shell,argv 逐字透传(无引号损耗)。 */
 export async function probeEngines(distro: string, bins: string[]): Promise<EngineProbe[]> {
   for (const b of bins) assertSafeToken("binary 名", b);
   const r = await execRun(BIN, ["-d", distro, "-e", "bash", "-c", engineProbeScript(bins)], 60_000);
-  return parseProbeLines(r.stdout);
+  return parseProbeRows(r.stdout, bins);
 }
 
 /** b64 载荷（对齐 Rust wsl_bash_payload）：b64 字符集对宿主 PowerShell/cmd 完全
@@ -292,7 +312,7 @@ export async function probeEnginesRemote(
 ): Promise<EngineProbe[]> {
   for (const b of bins) assertSafeToken("binary 名", b);
   const r = await sshRun(link, wslBashPayload(distro, engineProbeScript(bins)));
-  return parseProbeLines(r.stdout);
+  return parseProbeRows(r.stdout, bins);
 }
 
 /** 远程 WSL 探测（对齐 Rust wsl_remote_info）：发行版表 + 运行态 + 版本，
