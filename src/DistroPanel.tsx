@@ -8,7 +8,6 @@
  */
 
 // ponytail: bins 固定清单,profile 驱动需宿主暴露引擎注册表后再换
-export const PROBE_BINS = ["claude", "codex", "omp", "dsh", "gemini", "qwen"];
 
 import { useCallback, useEffect, useState } from "react";
 import { copy } from "./host";
@@ -17,6 +16,7 @@ import type { WslPrefs, WslWorkspaceMeta } from "./store";
 import {
   listDirRemote,
   probeEnginesRemote,
+  PROBE_BINS,
   type DirEntry,
   type EngineProbe,
   type SshLink,
@@ -57,12 +57,33 @@ export function DistroPanel({
     setProbes(null);
     setProbeErr(null);
     void probeEnginesRemote(distro.name, PROBE_BINS, link)
-      .then((r) => {
-        if (!cancelled) setProbes(r);
+      .then(async (r) => {
+        if (cancelled) return;
+        setProbes(r);
+        // 探针完成后,把 enginePaths 刷进本发行版已登记工作区的宿主 meta
+        // (add 是 upsert,COALESCE 覆盖)—— 修复旧登记缺 enginePaths
+        // 导致引擎菜单不过滤的问题;无已登记工作区时是 no-op。
+        const enginePaths: Record<string, string> = {};
+        for (const p of r) if (p.path) enginePaths[p.bin] = p.path;
+        if (!Object.keys(enginePaths).length) return;
+        const affected = Object.entries(prefs.workspaces).filter(
+          ([, m]) => m.distro === distro.name,
+        );
+        for (const [path, m] of affected) {
+          try {
+            await addWorkspaceToHost(path, { ...m, enginePaths });
+          } catch {
+            /* meta 刷新失败不影响诊断;下次重新检测再试 */
+          }
+        }
+        if (affected.length) {
+          const nextWorkspaces = { ...prefs.workspaces };
+          for (const [path] of affected) {
+            nextWorkspaces[path] = { ...nextWorkspaces[path]!, enginePaths };
+          }
+          updatePrefs({ workspaces: nextWorkspaces });
+        }
       })
-      .catch((e) => {
-        if (!cancelled) setProbeErr(e instanceof Error ? e.message : String(e));
-      });
     return () => {
       cancelled = true;
     };

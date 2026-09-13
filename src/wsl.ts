@@ -45,11 +45,9 @@ export interface SshTarget {
   port: number;
 }
 
-/** 一条远程链路：目标 + 可选密码（空 = key 认证 BatchMode）。 */
-export interface SshLink {
-  target: SshTarget;
-  password?: string;
-}
+
+// ponytail: bins 固定清单,profile 驱动需宿主暴露引擎注册表后再换
+export const PROBE_BINS = ["claude", "codex", "omp", "dsh", "gemini", "qwen"];
 
 const BIN = "wsl.exe";
 const SSH_BIN = "ssh";

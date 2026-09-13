@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { copy, getHostCtx } from "./host";
 import { loadPrefs, savePrefs, type WslHostEntry, type WslPrefs, type WslWorkspaceMeta } from "./store";
-import { listDirRemote, probeRemote, ensureControlMaster, type DirEntry, type SshLink, type WslDistro, type WslInfo } from "./wsl";
+import { listDirRemote, probeEnginesRemote, probeRemote, ensureControlMaster, PROBE_BINS, type DirEntry, type SshLink, type WslDistro, type WslInfo } from "./wsl";
 
 function joinPath(base: string, name: string): string {
   if (base === "~") return `~/${name}`;
@@ -119,6 +119,15 @@ export function AddWorkspacePage({ locale }: { locale: string }) {
       workspace: target,
     };
     try {
+      // 引擎探针(容忍失败:空 = 菜单不过滤,不挡登记)。
+      try {
+        const probes = await probeEnginesRemote(distro, PROBE_BINS, link(selected));
+        const enginePaths: Record<string, string> = {};
+        for (const p of probes) if (p.path) enginePaths[p.bin] = p.path;
+        if (Object.keys(enginePaths).length) meta.enginePaths = enginePaths;
+      } catch {
+        /* 探针失败不挡登记 */
+      }
       // 失败必须上抛:只有宿主真登记成功才标记已添加。
       await addWorkspaceToHost(target, meta);
       const next: WslPrefs = { ...prefs, workspaces: { ...prefs.workspaces, [target]: meta } };

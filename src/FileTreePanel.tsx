@@ -98,6 +98,21 @@ function Tree({ link, distro, root, locale }: { link: SshLink; distro: string; r
 
   const openFile = async (path: string) => {
     setError(null);
+    // 首选宿主中央编辑器(客户端已接入的文件开启流);经 remote-files 桥
+    // 由 activate 注册的读取器供内容(只读)。桥缺失/读失败回落内置预览。
+    const w = window as { __ccguiFiles?: unknown };
+    const bridge = w.__ccguiFiles;
+    if (bridge && typeof bridge === "object" && "openFile" in bridge) {
+      const open = bridge.openFile;
+      if (typeof open === "function") {
+        try {
+          await open(path);
+          return;
+        } catch {
+          /* fall through to inline preview */
+        }
+      }
+    }
     try {
       const r = await readFileRemote(link, distro, path, PREVIEW_MAX_BYTES);
       if (r.truncated || r.content === null) {

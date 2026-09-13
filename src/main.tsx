@@ -6,7 +6,7 @@ import { WslCard } from "./WslCard";
 import { FileTreePanel } from "./FileTreePanel";
 import { AddWorkspacePage, openAddWorkspacePage } from "./AddWorkspacePage";
 import { copy, setHostCtx } from "./host";
-
+import { registerRemoteFileHook } from "./remoteFiles";
 /**
  * 插件入口:宿主动态 import main.js 并以 PluginContext 调默认导出。
  * 双段挂载(react-doctor 同款):宿主 React 树只渲染容器(经 ctx.react),
@@ -17,6 +17,7 @@ const activate: PluginActivate = (ctx) => {
   // 样式内嵌注入:本地目录安装的宿主可能不加载插件目录的 styles.css
   // (marketplace 三件套才保证),内嵌进 bundle 万无一失。
   ctx.theme.injectCss(stylesCss);
+  registerRemoteFileHook();
   const h = ctx.react;
 
   const svgProps = {
