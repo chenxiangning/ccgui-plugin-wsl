@@ -438,41 +438,39 @@
 .wsl-file-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   width: 100%;
-  height: 28px; /* 宿主 FileTreeRow h-7 */
+  height: 32px; /* 图 1 行高 */
   text-align: left;
-  padding: 0 4px 0 14px;
-  border-radius: 6px; /* rounded-md */
-  font-size: 12px;
+  padding: 0 8px 0 14px;
+  border-radius: 6px;
+  font-size: 13px;
   color: var(--wsl-fg);
   background: transparent;
 }
 .wsl-file-row[aria-expanded] {
   padding-left: 4px;
 }
-.wsl-file-caret {
+.wsl-file-ic {
   flex: none;
-  width: 14px;
-  text-align: center;
-  color: var(--wsl-fg-subtle);
-  font-size: 10px;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
 }
-.wsl-file-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.wsl-file-ic svg {
+  width: 16px;
+  height: 16px;
 }
-.wsl-file-dot {
-  width: 7px;
-  height: 7px;
-  flex: none;
+.wsl-file-host {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--wsl-fg);
 }
-.wsl-file-preview {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 50%;
+.wsl-dot.ok {
+  background: var(--wsl-ok);
 }
 .wsl-file-preview pre {
   margin: 0;

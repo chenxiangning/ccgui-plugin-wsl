@@ -1,13 +1,10 @@
+import { getFileTreeIconSvg } from "./fileIcons";
 /**
- * WSL 文件面板(聊天右侧 panel-tab)—— 远程发行版目录树 + 只读预览。
- *
  * 只接管插件登记过的 WSL 工作区(prefs.workspaces:path → {hostId, distro});
  * 其余工作区交还宿主(files 面板等)。数据全部经 exec 桥 ssh/expect 通道,
  * 宿主 fs 面不感知远程路径。
  */
-
 import { useCallback, useEffect, useState } from "react";
-import { CaretDownIcon, CaretRightIcon } from "./icons";
 import { copy, getHostCtx, type Copy } from "./host";
 import { loadPrefs, type WslPrefs } from "./store";
 import { listRemoteSessions, type RemoteSessionSummary } from "./wsl";
@@ -68,6 +65,8 @@ export function FileTreePanel({ workspacePath, locale }: { workspacePath: string
 
 function Tree({ link, distro, root, locale }: { link: SshLink; distro: string; root: string; locale: string }) {
   const t = copy(locale);
+  // 图 1 头部形态:● Ubuntu · 192.168.1.7(远程显 host;本机链路无 host 段)
+  const hostTail = link.controlPath ? "" : `${link.target.user}@${link.target.host}`;
   const [expanded, setExpanded] = useState<Record<string, DirEntry[]>>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
@@ -115,9 +114,12 @@ function Tree({ link, distro, root, locale }: { link: SshLink; distro: string; r
     <div className="wsl-file-root">
       <SessionStrip link={link} distro={distro} workspacePath={root} locale={locale} />
       <div className="wsl-file-crumb">
-        <span className="wsl-panel-lbl">
-          {distro}:{root}
+        <span className="wsl-file-host">
+          <span className="wsl-dot ok" aria-hidden />
+          {distro}
+          {hostTail ? ` · ${hostTail}` : ""}
         </span>
+        <code>{root}</code>
         <button type="button" className="wsl-btn ghost" onClick={() => void load(root)}>
           {t.refresh}
         </button>
@@ -197,16 +199,19 @@ function FileRow({
         }}
       >
         {isDir ? (
-          <>
-            {open ? <CaretDownIcon /> : <CaretRightIcon />}
-            <span className="wsl-file-name">{name}/</span>
-          </>
+          <span
+            className="wsl-file-ic"
+            aria-hidden
+            dangerouslySetInnerHTML={{ __html: getFileTreeIconSvg(name, true, open) }}
+          />
         ) : (
-          <>
-            <span className="wsl-file-dot" aria-hidden />
-            <span className="wsl-file-name">{name}</span>
-          </>
+          <span
+            className="wsl-file-ic"
+            aria-hidden
+            dangerouslySetInnerHTML={{ __html: getFileTreeIconSvg(name, false) }}
+          />
         )}
+        <span className="wsl-file-name">{isDir ? `${name}/` : name}</span>
         {loading[path] && <span className="wsl-hint">{t.fileLoading}</span>}
       </button>
       {isDir &&
