@@ -1,7 +1,7 @@
 {
   "id": "wsl",
   "name": "WSL 管理器",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "sdkVersion": "^0.3",
   "minAppVersion": "1.0.0",
   "author": "chenxiangning",
@@ -12,6 +12,7 @@
     "ui:settings-section",
     "ui:panel-tab",
     "storage",
+    "theme",
     "exec:wsl.exe",
     "exec:ssh",
     "exec:expect",
