@@ -10,15 +10,15 @@
 export const PROBE_BINS = ["claude", "codex", "omp", "dsh", "gemini", "qwen"];
 import { copy } from "./host";
 import { useEffect, useState } from "react";
-import { probeEnginesRemote, type EngineProbe, type SshTarget, type WslDistro } from "./wsl";
+import { probeEnginesRemote, type EngineProbe, type SshLink, type WslDistro } from "./wsl";
 
 export function DistroPanel({
   distro,
-  sshTarget,
+  link,
   locale,
 }: {
   distro: WslDistro;
-  sshTarget: SshTarget;
+  link: SshLink;
   locale: string;
 }) {
   const t = copy(locale);
@@ -29,7 +29,7 @@ export function DistroPanel({
     let cancelled = false;
     setProbes(null);
     setProbeErr(null);
-    void probeEnginesRemote(distro.name, PROBE_BINS, sshTarget)
+    void probeEnginesRemote(distro.name, PROBE_BINS, link)
       .then((r) => {
         if (!cancelled) setProbes(r);
       })
@@ -39,7 +39,7 @@ export function DistroPanel({
     return () => {
       cancelled = true;
     };
-  }, [distro.name, sshTarget.host, sshTarget.port, sshTarget.user]);
+  }, [distro.name, link.target.host, link.target.port, link.target.user, link.password]);
 
   return (
     <div className="wsl-distro-panel">

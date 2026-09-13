@@ -1,17 +1,18 @@
 {
   "id": "wsl",
   "name": "WSL 管理器",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "sdkVersion": "^0.3",
   "minAppVersion": "1.0.0",
   "author": "chenxiangning",
   "repo": "chenxiangning/ccgui-plugin-wsl",
-  "description": "WSL 发行版管理器（复刻 tmd-cli WSL 面板）：本机发行版列表与运行态、版本/默认发行版/登录用户诊断、设为默认、发行版内 CLI 引擎探针、经 SSH（key 认证）的远程 Windows 宿主 WSL 探测。",
+  "description": "WSL 发行版管理器(复刻 tmd-cli WSL 面板):本机发行版列表与运行态、版本/默认发行版/登录用户诊断、设为默认、发行版内 CLI 引擎探针、经 SSH 连远程 Windows 宿主(密码经系统 expect 非交互送入,或 key 认证),主机簿支持增删改。",
   "tier": "js",
   "permissions": [
     "ui:settings-section",
     "storage",
     "exec:wsl.exe",
-    "exec:ssh"
+    "exec:ssh",
+    "exec:expect"
   ]
 }

@@ -129,6 +129,16 @@
 .wsl-showall {
   margin: 2px 0;
 }
+.wsl-btn.danger {
+  border-color: transparent;
+  background: transparent;
+  color: var(--wsl-err);
+}
+
+.wsl-host-form-foot {
+  display: flex;
+  gap: 8px;
+}
 
 .wsl-facts {
   margin: 6px 0;

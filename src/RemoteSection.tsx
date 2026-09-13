@@ -1,17 +1,18 @@
 /**
- * WSL 卡远程连接段（tmd RemoteSection 移植）—— 经 SSH 连 Windows 宿主探测发行版。
+ * WSL 卡远程连接段(tmd RemoteSection 移植)—— 经 SSH 连 Windows 宿主探测发行版。
  *
- * 主机簿：tmd 复用宿主 settings.ssh.hosts —— 插件无宿主 settings 面，自持
- * prefs.hosts（下拉 + 手动添加表单，同 host|port|user 查重）。连接 = 三条诊断
- * 命令各一次 ssh（BatchMode，仅 key 认证）。「SSH 进入」依赖宿主会话面，裁除；
- * 发行版面板只余引擎探针。
+ * 主机簿:插件自持 prefs.hosts(下拉 + 手动添加/编辑表单,host|port|user 查重,
+ * 可删除)。认证两路:密码(macOS/Linux 经系统 expect 起 PTY 非交互送入,明文存
+ * 插件 KV)或 key(ssh BatchMode);Windows 客户端仅 key。tmd 的 Rust ssh 栈带
+ * 密码认证 —— 插件无原生通道,expect 是无 fs/无 PTY 面下的最小可行链路。
+ * 「SSH 进入」依赖宿主会话面,裁除;发行版面板只余引擎探针。
  */
 
 import { useState } from "react";
 import { CaretDownIcon, CaretRightIcon, PlusIcon } from "./icons";
 import { copy } from "./host";
 import type { WslPrefs, WslHostEntry } from "./store";
-import { probeRemote, type SshTarget, type WslInfo } from "./wsl";
+import { probeRemote, type SshLink, type SshTarget, type WslInfo } from "./wsl";
 import { DistroPanel, Hl } from "./DistroPanel";
 
 /** 非 Windows 开发机(mac)无 wsl.exe/远程宿主时的 UI 预览桩:仅 DEV 生效(tmd 同款)。 */
@@ -43,20 +44,50 @@ export function WslRemoteSection({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
-  const [openDistro, setOpenDistro] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [host_, setHost_] = useState("");
   const [port, setPort] = useState("22");
   const [user, setUser] = useState("");
+  const [password_, setPassword_] = useState("");
   const [formErr, setFormErr] = useState<string | null>(null);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [openDistro, setOpenDistro] = useState<string | null>(null);
 
-  const pickHost = (id: string) => {
-    updatePrefs({ remoteHostId: id });
+  const clearPanel = () => {
     setInfo(null);
     setOpenDistro(null);
     setError(null);
   };
 
-  const saveHost = () => {
+  const pickHost = (id: string) => {
+    updatePrefs({ remoteHostId: id });
+    setConfirmDel(false);
+    clearPanel();
+  };
+
+  const openAddForm = () => {
+    setEditingId(null);
+    setHost_("");
+    setPort("22");
+    setUser("");
+    setPassword_("");
+    setFormErr(null);
+    setFormOpen((v) => !v);
+  };
+
+  const openEditForm = () => {
+    if (!selected) return;
+    setEditingId(selected.id);
+    setHost_(selected.host);
+    setPort(String(selected.port));
+    setUser(selected.user);
+    setPassword_(selected.password ?? "");
+    setFormErr(null);
+    setConfirmDel(false);
+    setFormOpen(true);
+  };
+
+  const submitForm = () => {
     const h = host_.trim();
     const u = user.trim();
     if (!h || !u) {
@@ -64,23 +95,53 @@ export function WslRemoteSection({
       return;
     }
     const portNum = Math.min(Math.max(parseInt(port, 10) || 22, 1), 65535);
-    if (hosts.some((x) => identityKey(x) === identityKey({ host: h, port: portNum, user: u }))) {
+    const dupe = hosts.some(
+      (x) => x.id !== editingId && identityKey(x) === identityKey({ host: h, port: portNum, user: u }),
+    );
+    if (dupe) {
       setFormErr(t.hostExists);
       return;
     }
-    const entry: WslHostEntry = {
-      id: `ssh-${crypto.randomUUID().slice(0, 8)}`,
-      name: `${u}@${h}`,
-      host: h,
-      port: portNum,
-      user: u,
-    };
-    updatePrefs({ hosts: [...hosts, entry], remoteHostId: entry.id });
+    const pass = password_ ? password_ : undefined;
+    if (editingId) {
+      updatePrefs({
+        hosts: hosts.map((x) =>
+          x.id === editingId ? { ...x, name: `${u}@${h}`, host: h, port: portNum, user: u, password: pass } : x,
+        ),
+      });
+    } else {
+      const entry: WslHostEntry = {
+        id: `ssh-${crypto.randomUUID().slice(0, 8)}`,
+        name: `${u}@${h}`,
+        host: h,
+        port: portNum,
+        user: u,
+        password: pass,
+      };
+      updatePrefs({ hosts: [...hosts, entry], remoteHostId: entry.id });
+    }
     setFormOpen(false);
     setFormErr(null);
+    clearPanel();
   };
 
-  const target = (h: WslHostEntry): SshTarget => ({ host: h.host, port: h.port, user: h.user });
+  const deleteHost = () => {
+    if (!selected) return;
+    /* 两段式确认:误触不清空主机簿,再点一次才真删。 */
+    if (!confirmDel) {
+      setConfirmDel(true);
+      return;
+    }
+    const rest = hosts.filter((x) => x.id !== selected.id);
+    updatePrefs({ hosts: rest, remoteHostId: rest[0]?.id ?? "" });
+    setConfirmDel(false);
+    clearPanel();
+  };
+
+  const link = (h: WslHostEntry): SshLink => {
+    const target: SshTarget = { host: h.host, port: h.port, user: h.user };
+    return { target, password: h.password || undefined };
+  };
 
   const probe = async () => {
     if (!selected || loading) return;
@@ -88,7 +149,7 @@ export function WslRemoteSection({
     setError(null);
     setOpenDistro(null);
     try {
-      const r = await probeRemote(target(selected));
+      const r = await probeRemote(link(selected));
       const eff = r?.available ? r : import.meta.env.DEV ? DEV_REMOTE_FALLBACK : null;
       setInfo(eff);
       /* 连接成功即自动展开默认发行版的探针面板(tmd 2026-09-14:免二次点击)。 */
@@ -122,14 +183,19 @@ export function WslRemoteSection({
             </option>
           ))}
         </select>
-        <button
-          type="button"
-          className="wsl-btn ghost"
-          title={t.addHostTitle}
-          onClick={() => setFormOpen((v) => !v)}
-        >
+        <button type="button" className="wsl-btn ghost" title={t.addHostTitle} onClick={openAddForm}>
           <PlusIcon size="0.75rem" />
         </button>
+        {selected && (
+          <>
+            <button type="button" className="wsl-btn ghost" onClick={openEditForm}>
+              {t.editHost}
+            </button>
+            <button type="button" className="wsl-btn ghost wsl-danger" onClick={deleteHost}>
+              {confirmDel ? t.confirmDelete : t.deleteHost}
+            </button>
+          </>
+        )}
         <button type="button" className="wsl-btn" disabled={!selected || loading} onClick={() => void probe()}>
           {loading ? t.connecting : t.connect}
         </button>
@@ -152,11 +218,32 @@ export function WslRemoteSection({
               <span>{t.userLabel}</span>
               <input value={user} onChange={(e) => setUser(e.target.value)} spellCheck={false} />
             </label>
+            <label>
+              <span>{t.passwordLabel}</span>
+              <input
+                type="password"
+                value={password_}
+                onChange={(e) => setPassword_(e.target.value)}
+                autoComplete="off"
+              />
+            </label>
           </div>
           {formErr && <div className="wsl-remote-err">{formErr}</div>}
-          <button type="button" className="wsl-btn" onClick={saveHost}>
-            {t.saveAndSelect}
-          </button>
+          <div className="wsl-host-form-foot">
+            <button type="button" className="wsl-btn" onClick={submitForm}>
+              {editingId ? t.saveChanges : t.saveAndSelect}
+            </button>
+            <button
+              type="button"
+              className="wsl-btn ghost"
+              onClick={() => {
+                setFormOpen(false);
+                setFormErr(null);
+              }}
+            >
+              {t.cancel}
+            </button>
+          </div>
           <div className="wsl-desc">{t.hostFormHint}</div>
         </div>
       )}
@@ -169,11 +256,7 @@ export function WslRemoteSection({
               className="wsl-distro-row wsl-distro-toggle"
               onClick={() => setOpenDistro((cur) => (cur === d.name ? null : d.name))}
             >
-              {openDistro === d.name ? (
-                <CaretDownIcon />
-              ) : (
-                <CaretRightIcon />
-              )}
+              {openDistro === d.name ? <CaretDownIcon /> : <CaretRightIcon />}
               <span className={`wsl-dot ${d.running ? "ok" : ""}`} aria-hidden />
               <span className="wsl-distro-name">{d.name}</span>
               <span className="wsl-distro-ver">WSL {d.version}</span>
@@ -182,7 +265,7 @@ export function WslRemoteSection({
               </span>
             </button>
             {openDistro === d.name && selected && (
-              <DistroPanel distro={d} sshTarget={target(selected)} locale={locale} />
+              <DistroPanel distro={d} link={link(selected)} locale={locale} />
             )}
           </div>
         ))}

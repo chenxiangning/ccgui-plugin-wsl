@@ -3,13 +3,16 @@ import { execRun } from "./caps";
 /**
  * WSL 诊断与操作 —— tmd-cli src-tauri/src/wsl.rs / wsl_remote_ops.rs 的 TS 移植。
  *
- * 与 Rust 侧的两处差异：
+ * 与 Rust 侧的三处差异：
  * - bridge 的 stdout 是宿主 Rust from_utf8_lossy 后的字符串：wsl.exe 表格的
  *   UTF-16LE 字节已打成 NUL 噪音。表格锚定列全是 ASCII（发行版名/`*`/版本号），
  *   剥掉 NUL 即无损还原；非 ASCII 只出现在状态列，解析从不读它（同 Rust 的
- *   locale 无关纪律）。
- * - 无长连 SSH 通道：远程探测走三次独立 ssh（BatchMode，仅 key 认证）。不做
- *   `;` 串接 —— Windows 宿主 DefaultShell 可能是 cmd.exe，对 `;` 无命令语义。
+ *   locale 无关纪律）。expect 的 PTY 输出同理适用。
+ * - 无长连 SSH 通道：远程探测走三次独立连接（BatchMode key 认证，或 expect
+ *   包 ssh 的密码认证）。不做 `;` 串接 —— Windows 宿主 DefaultShell 可能是
+ *   cmd.exe，对 `;` 无命令语义。
+ * - 密码认证：exec 无 TTY，ssh 读不到密码 —— 借 macOS/Linux 系统自带 expect
+ *   起 PTY 非交互送入；密码经 env 传给 expect，不落 argv。
  */
 
 export interface WslDistro {
@@ -40,6 +43,12 @@ export interface SshTarget {
   user: string;
   host: string;
   port: number;
+}
+
+/** 一条远程链路：目标 + 可选密码（空 = key 认证 BatchMode）。 */
+export interface SshLink {
+  target: SshTarget;
+  password?: string;
 }
 
 const BIN = "wsl.exe";
@@ -200,66 +209,122 @@ function wslBashPayload(distro: string, script: string): string {
   return `wsl.exe -d "${distro.replace(/"/g, "")}" -- bash -c "echo ${b64}|base64 -d|bash"`;
 }
 
-/** 发行版内引擎探针（远程，经 ssh；b64 载荷过宿主 shell）。 */
-export async function probeEnginesRemote(
-  distro: string,
-  bins: string[],
-  target: SshTarget,
-): Promise<EngineProbe[]> {
-  for (const b of bins) assertSafeToken("binary 名", b);
-  const r = await sshRun(target, [wslBashPayload(distro, engineProbeScript(bins))]);
-  return parseProbeLines(r.stdout);
-}
-
-/** 单次 ssh 执行（key 认证，BatchMode 禁交互提示；hostkey accept-new TOFU）。 */
-async function sshRun(target: SshTarget, remote: string[]): Promise<{ code: number | null; stdout: string }> {
-  const r = await execRun(
-    SSH_BIN,
-    [
-      "-o",
-      "BatchMode=yes",
-      "-o",
-      "StrictHostKeyChecking=accept-new",
-      "-o",
-      "ConnectTimeout=10",
-      "-p",
-      String(target.port),
-      `${target.user}@${target.host}`,
-      ...remote,
-    ],
-    60_000,
-  );
-  return { code: r.code, stdout: r.stdout };
-}
-
-/** 远程 WSL 探测（对齐 Rust wsl_remote_info）：发行版表 + 运行态 + 版本，
- *  三条独立命令各一次 ssh（不在宿主 shell 里做 `;` 串接）。
- *  远程不跑 -e 探针（可能触发发行版冷启动拖慢探测），$HOME/用户为 null。 */
-export async function probeRemote(target: SshTarget): Promise<WslInfo> {
+function assertTarget(target: SshTarget): void {
   assertSafeToken("user", target.user);
   assertSafeToken("host", target.host);
   if (!Number.isInteger(target.port) || target.port < 1 || target.port > 65535) {
     throw new Error(`端口不合法: ${target.port}`);
   }
+}
+
+const SSH_OPTS = [
+  "-o",
+  "StrictHostKeyChecking=accept-new",
+  "-o",
+  "NumberOfPasswordPrompts=1",
+  "-o",
+  "ConnectTimeout=10",
+];
+
+/** expect 包 ssh（密码路径）的 TCL 脚本：log_user 0 压掉密码段回显，送入后恢复；
+ *  末行 WSLEXIT 码供解析。cmd 无花括号（b64 字符集 + wsl.exe 固定词；发行版名
+ *  已滤引号），TCL {} 字面量安全。 */
+function expectScript(target: SshTarget, cmd: string): string {
+  return (
+    "set timeout 45\n" +
+    "set p $env(WSLSH_PASS)\n" +
+    "log_user 0\n" +
+    `spawn -noecho ssh ${SSH_OPTS.join(" ")} -p ${target.port} ${target.user}@${target.host} {${cmd}}\n` +
+    "expect {\n" +
+    '  -re "(?i)(password|passphrase):" { send -- "$p\\r" }\n' +
+    '  timeout { puts "\\nWSLEXIT:124"; exit }\n' +
+    '  eof { puts "\\nWSLEXIT:255"; exit }\n' +
+    "}\n" +
+    "log_user 1\n" +
+    "expect eof\n" +
+    'puts "\\nWSLEXIT:[lindex [wait] 3]"\n'
+  );
+}
+
+/** 解析 expect 尾码并剥离标记行。 */
+function splitWslExit(text: string): { code: number | null; stdout: string } {
+  const m = /WSLEXIT:(\d+)\s*$/.exec(text);
+  if (!m) return { code: null, stdout: text };
+  return { code: Number(m[1]), stdout: text.slice(0, m.index).trimEnd() + "\n" };
+}
+
+/** 认证/hostkey 失败翻译（整段输出里找；expect PTY 会把 stderr 并进 stdout）。 */
+function sshAuthError(text: string): string | null {
+  if (/permission denied|authentication failed/i.test(text)) return "认证失败:密码错误或公钥被拒。";
+  if (/host key verification failed/i.test(text)) return "宿主 hostkey 已变更:删除本机 known_hosts 中该宿主的旧行后重试。";
+  return null;
+}
+
+/** 单次远程执行。无密码 = ssh BatchMode（argv 直传）；有密码 = expect 包 ssh。
+ *  Windows 客户端通常没有 expect，spawn 失败走下方 ENOENT 翻译。 */
+async function sshRun(link: SshLink, remote: string): Promise<{ code: number | null; stdout: string }> {
+  const { target, password } = link;
+  assertTarget(target);
+  if (!password) {
+    const r = await execRun(
+      SSH_BIN,
+      [...SSH_OPTS, "-o", "BatchMode=yes", "-p", String(target.port), `${target.user}@${target.host}`, remote],
+      60_000,
+    );
+    return { code: r.code, stdout: r.stdout };
+  }
+  let r;
+  try {
+    r = await execRun("expect", ["-c", expectScript(target, remote)], 60_000, { WSLSH_PASS: password });
+  } catch {
+    throw new Error("未找到 expect(密码登录依赖 macOS/Linux 系统自带 expect)。");
+  }
+  const authErr = sshAuthError(r.stdout);
+  if (authErr) throw new Error(authErr);
+  return splitWslExit(r.stdout);
+}
+
+/** 发行版内引擎探针（远程，b64 载荷过宿主 shell）。 */
+export async function probeEnginesRemote(
+  distro: string,
+  bins: string[],
+  link: SshLink,
+): Promise<EngineProbe[]> {
+  for (const b of bins) assertSafeToken("binary 名", b);
+  const r = await sshRun(link, wslBashPayload(distro, engineProbeScript(bins)));
+  return parseProbeLines(r.stdout);
+}
+
+/** 远程 WSL 探测（对齐 Rust wsl_remote_info）：发行版表 + 运行态 + 版本，
+ *  三条独立命令各一次连接（不在宿主 shell 里做 `;` 串接）。
+ *  远程不跑 -e 探针（可能触发发行版冷启动拖慢探测），$HOME/用户为 null。 */
+export async function probeRemote(link: SshLink): Promise<WslInfo> {
   let list: string;
   try {
-    const r = await sshRun(target, ["wsl.exe -l -v"]);
-    if (r.code !== null && r.code !== 0) return unavailable();
+    const r = await sshRun(link, "wsl.exe -l -v");
+    if (r.code !== null && r.code !== 0) {
+      const authErr = sshAuthError(r.stdout);
+      if (authErr) throw new Error(authErr);
+      return unavailable();
+    }
     list = decodeWslOutput(r.stdout);
   } catch (e) {
-    throw new Error(`ssh 连接失败（需 key 认证）: ${e instanceof Error ? e.message : String(e)}`);
+    const msg = e instanceof Error ? e.message : String(e);
+    /* sshRun 已翻译认证/expect 错误；其余按连接失败包装。 */
+    if (/认证失败|hostkey|expect/.test(msg)) throw e;
+    throw new Error(`ssh 连接失败: ${msg}`);
   }
   const distros = parseWslList(list);
   if (distros.length === 0) return unavailable();
   try {
-    const r = await sshRun(target, ["wsl.exe -l -v --running"]);
+    const r = await sshRun(link, "wsl.exe -l -v --running");
     if (r.code === 0) markRunning(distros, decodeWslOutput(r.stdout));
   } catch {
     /* 老版 wsl.exe 不认 --running：静默按全停。 */
   }
   let wslVersion: string | null = null;
   try {
-    const r = await sshRun(target, ["wsl.exe --version"]);
+    const r = await sshRun(link, "wsl.exe --version");
     wslVersion = firstVersionLine(decodeWslOutput(r.stdout));
   } catch {
     /* 版本行缺省不影响可用性。 */

@@ -12,12 +12,19 @@ export interface ExecRunResult {
   stderr: string;
 }
 
-/** `plugin_exec_run`：bin 须命中 `exec:` 授权；timeoutMs 默认 30000、上限 300000。 */
-export function execRun(bin: string, args: string[], timeoutMs?: number): Promise<ExecRunResult> {
+/** `plugin_exec_run`：bin 须命中 `exec:` 授权；timeoutMs 默认 30000、上限 300000。
+ *  env 额外注入（不继承宿主进程环境之外的键；用于密码等敏感传参，避免落 argv）。 */
+export function execRun(
+  bin: string,
+  args: string[],
+  timeoutMs?: number,
+  env?: Record<string, string>,
+): Promise<ExecRunResult> {
   return getHostCtx().bridge.invoke("plugin_exec_run", {
     bin,
     args,
     timeoutMs: timeoutMs ?? null,
+    env: env ?? null,
   });
 }
 

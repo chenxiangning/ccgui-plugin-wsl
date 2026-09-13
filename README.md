@@ -14,18 +14,20 @@ CC GUI 插件:WSL 发行版管理器(设置页 section)。能力与 UI 复刻自
 - **引擎探针**:发行版内逐 binary `command -v`(登录 shell PATH,补
   `~/.profile` 与 `~/.local/bin`;`/mnt/*` Windows 互操作路径不计)。
   bins 为固定清单 `PROBE_BINS`(tmd 取宿主 cli profile 清单,SDK 无对应注册表)。
-- **远程探测**:经 `ssh`(BatchMode,仅 key 认证,`StrictHostKeyChecking=accept-new`)
-  连 Windows 宿主跑同样的诊断命令;主机簿为插件自持 KV(手动添加表单,
-  `host|port|user` 查重)。
+- **远程探测**:经 `ssh` 连 Windows 宿主跑同样的诊断命令。认证两路:
+  密码(macOS/Linux 经系统自带 `expect` 起 PTY 非交互送入,密码经 env 传递
+  不落 argv,明文存本机插件 KV)或 SSH key(`BatchMode`);Windows 客户端
+  通常无 `expect`,仅支持 key 认证。主机簿为插件自持 KV:手动添加/编辑/删除
+  (两段确认),`host|port|user` 查重。
 
 ## 权限
 
 | 权限 | 用途 |
 |---|---|
 | `ui:settings-section` | 设置页「WSL 主机」section |
-| `storage` | 插件 KV(钉选发行版、远程主机簿、选中主机) |
 | `exec:wsl.exe` | 本机诊断 / 设默认 / 发行版内探针 |
-| `exec:ssh` | 远程宿主探测(key 认证) |
+| `exec:ssh` | 远程宿主探测(key 认证路径) |
+| `exec:expect` | 远程宿主探测(密码认证路径,macOS/Linux 系统自带) |
 
 无网络权限;不访问文件系统;不使用 localStorage。
 

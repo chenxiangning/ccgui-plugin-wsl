@@ -1,20 +1,22 @@
 import { getHostCtx } from "./host";
 
-/** 插件 KV 持久化（ctx.storage 单键对象；react-doctor store.ts 同款思路）。
+/** 插件 KV 持久化(ctx.storage 单键对象;react-doctor store.ts 同款思路)。
  *  tmd 把 defaultDistro/remoteHostId 放宿主 settings.wsl 域 —— 本插件无宿主
- *  settings 面，三值收敛进自己的 KV。 */
+ *  settings 面,三值收敛进自己的 KV。 */
 
 export interface WslHostEntry {
   id: string;
-  /** 显示名（host form 存 user@host）。 */
+  /** 显示名(host form 存 user@host)。 */
   name: string;
   host: string;
   port: number;
   user: string;
+  /** 密码(可选;明文存本机插件 KV —— expect 非交互送入用)。 */
+  password?: string;
 }
 
 export interface WslPrefs {
-  /** 卡内「设默认」记住的发行版（空串 = 显示全部）。 */
+  /** 卡内「设默认」记住的发行版(空串 = 显示全部)。 */
   defaultDistro: string;
   /** 远程下拉当前选中的主机 id。 */
   remoteHostId: string;
@@ -34,6 +36,7 @@ function sanitizePrefs(v: unknown): WslPrefs {
           host: String(h.host ?? ""),
           port: Number(h.port) || 22,
           user: String(h.user ?? ""),
+          password: typeof h.password === "string" && h.password ? h.password.slice(0, 200) : undefined,
         }))
         .filter((h) => h.id && h.host && h.user)
     : [];
