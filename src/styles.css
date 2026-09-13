@@ -2,13 +2,9 @@
    插件 CSS 被宿主包进 @layer ccgui-plugins(优先级最低),因此全部规则挂在
    wsl- 前缀类上、不碰裸元素选择器;明暗双套 token 跟随宿主根节点 .dark 切换。
    token 命名 --wsl-*(tmd 用 --tmd-*;取其浅色实采样值,暗色按同亮度关系配)。 */
-.wsl-card {
-  margin: 16px auto;
-  max-width: 860px;
-  border: 1px solid var(--wsl-border);
-  border-radius: var(--wsl-radius-md);
-  background: var(--wsl-bg-elevated);
-  overflow: visible;
+/* token 挂 :root(不挂 .wsl-card):添加页/面板不在卡作用域内,
+   作用域 token 会让整页 var() 落空(真机裸奔根因之一)。 */
+:root {
   --wsl-fg: #3b3b3b;
   --wsl-fg-muted: #6b6b6b;
   --wsl-fg-subtle: #767676;
@@ -26,7 +22,7 @@
   --wsl-radius-sm: 4px;
   --wsl-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
-.dark .wsl-card {
+.dark {
   --wsl-fg: #cccccc;
   --wsl-fg-muted: #a0a0a0;
   --wsl-fg-subtle: #8b8b8b;
@@ -40,6 +36,15 @@
   --wsl-accent-soft: rgba(77, 170, 252, 0.16);
   --wsl-ok: #4ade80;
   --wsl-err: #f87171;
+}
+
+.wsl-card {
+  margin: 16px auto;
+  max-width: 860px;
+  border: 1px solid var(--wsl-border);
+  border-radius: var(--wsl-radius-md);
+  background: var(--wsl-bg-elevated);
+  overflow: visible;
 }
 
 .wsl-card-head {
@@ -317,19 +322,86 @@
   font: inherit;
 }
 
-/* ---- 添加 WSL 工作区页 ---- */
+/* ---- 添加 WSL 工作区页(tmd AddWslTab 同款类名) ---- */
 .wsl-addpage {
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 4px 2px;
+}
+.wsl-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+}
+.wsl-field > span {
+  flex: none;
+  width: 4.5em;
+  color: var(--wsl-fg-muted);
+}
+.wsl-field select,
+.wsl-field input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--wsl-border);
+  border-radius: var(--wsl-radius-sm);
+  background: var(--wsl-bg-input);
+  color: var(--wsl-fg);
+  font: inherit;
+}
+.wsl-dir-browser {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-width: 860px;
-  margin: 0 auto;
-  padding: 12px 4px;
+  gap: 6px;
+  margin-top: 6px;
 }
-.wsl-addpage-head {
+.wsl-dir-crumb {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+.wsl-dir-crumb code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--wsl-fg-muted);
+}
+.wsl-dir-list {
+  max-height: 148px;
+  overflow: auto;
+  border: 1px solid var(--wsl-border);
+  border-radius: var(--wsl-radius-sm);
+  padding: 2px;
+}
+.wsl-dir-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--wsl-mono, monospace);
+  font-size: 11.5px;
+}
+.wsl-dir-row:hover:not(.off) {
+  background: var(--wsl-bg-hover);
+}
+.wsl-dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.wsl-dir-row {
+  /* 宿主无 button preflight 时 UA 白底会漏出来 */
+  border: none;
+  background: transparent;
+  color: var(--wsl-fg);
+  cursor: pointer;
+  font: inherit;
 }
 
 /* ---- WSL 文件面板(panel-tab) ---- */

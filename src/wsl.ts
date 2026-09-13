@@ -256,12 +256,9 @@ export async function listRemoteSessions(
   workspacePath: string,
 ): Promise<RemoteSessionSummary[]> {
   assertSafeToken("发行版名", distro);
-  if (/[^\x20-\x7e]/.test(workspacePath) || /["'\\]/.test(workspacePath)) {
-    throw new Error("路径含不支持的字符");
-  }
+  assertSafePath(workspacePath);
   const script = [
-    'enc=$(printf %s "' + workspacePath + '" | tr -c "a-zA-Z0-9" "-")',
-    'case "$enc" in "~"*) enc="${enc#"~"}";; esac',
+    "enc=$(printf %s " + workspacePath + ' | tr -c "a-zA-Z0-9" "-")',
     'base="$HOME/.claude/projects"',
     'best=""',
     'for d in "$base"/*/; do',
@@ -407,19 +404,18 @@ export async function probeEnginesRemote(
   return parseProbeRows(r.stdout, bins);
 }
 
-/** 路径白名单(tmd 级):`[A-Za-z0-9_./~-]`,`~` 起始可用;空格/引号/`$`
- *  一律拒绝(b64 载荷内脚本双引号包裹,靠白名单保证无注入面)。 */
+/** 路径白名单(tmd 级,Rust validate_path_component 同款):仅
+ *  `[A-Za-z0-9_./~-]`;`~` 起始可用。路径在脚本里**不加引号**直排 ——
+ *  bash 对行首 `~` 做原生 tilde 展开(tmd 2026-09-13 真机验证的形态);
+ *  白名单保证无注入面。空格路径不支持,报错提示。 */
 function assertSafePath(path: string): void {
   if (path.length === 0 || /[^A-Za-z0-9_./~-]/.test(path)) {
     throw new Error("路径含不支持的字符(暂不支持空格与引号)");
   }
 }
 
-/** bash 双引号内 ~ 不展开 —— 脚本内对 `$p` 手动展开 ~ 前缀。 */
-const EXPAND_TILDE = 'case "$p" in "~"*) p="$HOME${p#~}";; esac; ';
-
 /** 目录懒加载(`ls -1ap`:目录带尾 `/`;`--` 挡 `-` 开头路径;过滤 . / ..)。
- *  对齐 Rust wsl_list_dir 的脚本与解析。 */
+ *  对齐 Rust wsl_list_dir:路径不加引号,退出码判失败(无自造错误标记)。 */
 export interface DirEntry {
   name: string;
   isDir: boolean;
@@ -428,9 +424,10 @@ export interface DirEntry {
 export async function listDirRemote(link: SshLink, distro: string, path: string): Promise<DirEntry[]> {
   assertSafeToken("发行版名", distro);
   assertSafePath(path);
-  const script = `p="${path}"; ${EXPAND_TILDE}ls -1ap -- "$p" 2>/dev/null || echo "__WSL_LS_ERR__"`;
-  const r = await sshRun(link, wslBashPayload(distro, script));
-  if (r.stdout.includes("__WSL_LS_ERR__")) throw new Error(`目录不存在或不可读: ${path}`);
+  const r = await sshRun(link, wslBashPayload(distro, `ls -1ap -- ${path}`));
+  if (r.code !== null && r.code !== 0) {
+    throw new Error(`目录不存在或不可读: ${path}(code=${r.code})`);
+  }
   return r.stdout
     .split(/\r?\n/)
     .map((l) => l.replace(/\r$/, ""))
@@ -454,7 +451,7 @@ export async function readFileRemote(
 ): Promise<RemoteFileText> {
   assertSafeToken("发行版名", distro);
   assertSafePath(path);
-  const script = `p="${path}"; ${EXPAND_TILDE}[ -f "$p" ] || { echo missing; exit 0; }; sz=$(wc -c < "$p"); echo "size=$sz"; if [ "$sz" -le ${maxBytes} ]; then base64 < "$p"; fi`;
+  const script = `[ -f ${path} ] || {{ echo missing; exit 0; }}; sz=$(wc -c < ${path}); echo "size=$sz"; if [ "$sz" -le ${maxBytes} ]; then base64 < ${path}; fi`;
   const r = await sshRun(link, wslBashPayload(distro, script));
   const text = r.stdout;
   if (/^missing$/m.test(text.trim())) throw new Error("文件不存在");

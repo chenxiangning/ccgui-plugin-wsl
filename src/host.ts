@@ -65,6 +65,10 @@ export interface Copy {
   browse: string;
   dirDesc: string;
   goUp: string;
+  distroLabel: string;
+  remoteNoWsl: string;
+  dirEmpty: string;
+  addHint: string;
   addWorkspaceBtn: string;
   addedHint: (path: string) => string;
   fileTab: string;
@@ -130,6 +134,10 @@ export function copy(locale: string): Copy {
       browse: "浏览目录",
       dirDesc: "逐级进入项目目录后点【添加工作区】;已登记的目录会在聊天右侧面板展示【发行版内文件】。",
       goUp: "上一级",
+      distroLabel: "发行版",
+      remoteNoWsl: "远程宿主未检测到 WSL 发行版。",
+      dirEmpty: "(无子目录)",
+      addHint: "逐级进入项目目录后点下方「添加工作区」。",
       addWorkspaceBtn: "添加工作区",
       addedHint: (path) => `已登记 ${path};在聊天右侧面板查看文件。`,
       fileTab: "WSL 文件",
@@ -198,6 +206,10 @@ export function copy(locale: string): Copy {
     dirDesc:
       "Navigate into the project directory and click 【Add workspace】; registered dirs get a 【distro file】 browser in the chat side panel.",
     goUp: "Up",
+    distroLabel: "Distro",
+    remoteNoWsl: "No WSL distros detected on the remote host.",
+    dirEmpty: "(no subdirectories)",
+    addHint: "Navigate into the project directory, then click Add workspace below.",
     addWorkspaceBtn: "Add workspace",
     addedHint: (path) => `Registered ${path}; open the chat side panel to browse files.`,
     fileTab: "WSL Files",

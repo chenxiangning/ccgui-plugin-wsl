@@ -1,4 +1,4 @@
-import "./styles.css";
+import stylesCss from "./styles.css?raw";
 
 import { createRoot } from "react-dom/client";
 import type { PluginActivate } from "./ccgui-plugin";
@@ -14,6 +14,9 @@ import { copy, setHostCtx } from "./host";
  */
 const activate: PluginActivate = (ctx) => {
   setHostCtx(ctx);
+  // 样式内嵌注入:本地目录安装的宿主可能不加载插件目录的 styles.css
+  // (marketplace 三件套才保证),内嵌进 bundle 万无一失。
+  ctx.theme.injectCss(stylesCss);
   const h = ctx.react;
 
   const svgProps = {
