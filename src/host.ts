@@ -68,6 +68,9 @@ export interface Copy {
   addWorkspaceBtn: string;
   addedHint: (path: string) => string;
   fileTab: string;
+  sessionStripTitle: string;
+  sessionNone: string;
+  sessionOpenFailed: string;
 }
 
 export function copy(locale: string): Copy {
@@ -126,6 +129,9 @@ export function copy(locale: string): Copy {
       addWorkspaceBtn: "添加工作区",
       addedHint: (path) => `已登记 ${path};在聊天右侧面板查看文件。`,
       fileTab: "WSL 文件",
+      sessionStripTitle: "claude 会话",
+      sessionNone: "(无会话记录)",
+      sessionOpenFailed: "打开会话失败(宿主需升级到 0.3.3 且该会话已被宿主收录)。",
     };
   }
   return {
@@ -187,5 +193,8 @@ export function copy(locale: string): Copy {
     addWorkspaceBtn: "Add workspace",
     addedHint: (path) => `Registered ${path}; open the chat side panel to browse files.`,
     fileTab: "WSL Files",
+    sessionStripTitle: "claude sessions",
+    sessionNone: "(no sessions)",
+    sessionOpenFailed: "Failed to open session (host needs SDK 0.3.3 and the session must be known to the host).",
   };
 }

@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CaretDownIcon, CaretRightIcon } from "./icons";
 import { copy, getHostCtx, type Copy } from "./host";
 import { loadPrefs, type WslPrefs } from "./store";
+import { listRemoteSessions, type RemoteSessionSummary } from "./wsl";
 import { listDirRemote, readFileRemote, type DirEntry, type SshLink } from "./wsl";
 
 const PREVIEW_MAX_BYTES = 512 * 1024;
@@ -112,6 +113,7 @@ function Tree({ link, distro, root, locale }: { link: SshLink; distro: string; r
 
   return (
     <div className="wsl-file-root">
+      <SessionStrip link={link} distro={distro} workspacePath={root} locale={locale} />
       <div className="wsl-file-crumb">
         <span className="wsl-panel-lbl">
           {distro}:{root}
@@ -237,3 +239,70 @@ export function fileCopy(locale: string): Pick<Copy, "refresh"> & { notWsl: stri
 
 // getHostCtx 引用保持(tree 未来需要 bridge 扩展时不必改 import 面)
 void getHostCtx;
+
+
+/** 会话条:claude code 在该工作区的远程会话,点击经宿主挂点打开(resume)。 */
+function SessionStrip({
+  link,
+  distro,
+  workspacePath,
+  locale,
+}: {
+  link: SshLink;
+  distro: string;
+  workspacePath: string;
+  locale: string;
+}) {
+  const t = copy(locale);
+  const [sessions, setSessions] = useState<RemoteSessionSummary[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [openErr, setOpenErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listRemoteSessions(link, distro, workspacePath)
+      .then((r) => {
+        if (!cancelled) setSessions(r);
+      })
+      .catch((e) => {
+        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [link, distro, workspacePath]);
+
+  const open = (id: string) => {
+    setOpenErr(null);
+    // 宿主挂点(可选链):codemoss >= 0.3.3 支持按 engine/session 打开会话。
+    const api = getHostCtx() as unknown as {
+      sessions?: { selectSession?: (engine: string, sessionId: string, workspacePath: string) => Promise<void> };
+    };
+    void Promise.resolve(api.sessions?.selectSession?.("claude", id, workspacePath)).catch(() => {
+      setOpenErr(t.sessionOpenFailed);
+    });
+  };
+
+  return (
+    <div className="wsl-panel-sec">
+      <span className="wsl-panel-lbl">{t.sessionStripTitle}</span>
+      {err && <div className="wsl-remote-err">{err}</div>}
+      {openErr && <div className="wsl-remote-err">{openErr}</div>}
+      {sessions === null && !err && <span className="wsl-hint">{t.fileLoading}</span>}
+      {sessions?.length === 0 && <span className="wsl-hint">{t.sessionNone}</span>}
+      {sessions?.map((s) => (
+        <button
+          key={s.sessionId}
+          type="button"
+          className="wsl-file-row"
+          title={`${s.sessionId} · ${new Date(s.updatedAt).toLocaleString()}`}
+          onClick={() => open(s.sessionId)}
+        >
+          <span className="wsl-file-dot" aria-hidden />
+          <span className="wsl-file-name">{s.title || s.sessionId.slice(0, 12)}</span>
+          <span className="wsl-distro-ver">{new Date(s.updatedAt).toLocaleDateString()}</span>
+        </button>
+      ))}
+    </div>
+  );
+}

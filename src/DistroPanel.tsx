@@ -87,12 +87,21 @@ export function DistroPanel({
   const register = () => {
     if (!dir || dir === "~") return;
     const path = dir;
-    const meta: WslWorkspaceMeta = { hostId: prefs.remoteHostId, distro: distro.name };
+    const host = prefs.hosts.find((x) => x.id === prefs.remoteHostId);
+    if (!host) return;
+    const meta: WslWorkspaceMeta = {
+      hostId: host.id,
+      distro: distro.name,
+      host: host.host,
+      port: host.port,
+      user: host.user,
+      controlPath: host.controlPath,
+    };
     updatePrefs({ workspaces: { ...prefs.workspaces, [path]: meta } });
     /* 宿主挂点(可选链):codemoss ≥ 适配版会把路径登记进侧栏工作区。 */
-    const host = getHostCtx() as unknown as { workspaces?: HostBridgeWorkspaces };
+    const api = getHostCtx() as unknown as { workspaces?: HostBridgeWorkspaces };
     try {
-      void Promise.resolve(host.workspaces?.add?.(path, { wsl: meta })).catch(() => {});
+      void Promise.resolve(api.workspaces?.add?.(path, { wsl: meta })).catch(() => {});
     } catch {
       /* 宿主未升级:仅插件内登记。 */
     }

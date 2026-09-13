@@ -200,6 +200,95 @@ export function parseProbeRows(text: string, bins: string[]): EngineProbe[] {
   return bins.map((bin) => ({ bin, path: found[bin] ?? null }));
 }
 
+/** 一条远程链路:目标 + 可选密码(空 = key 认证 BatchMode)+ 可选
+ *  SSH ControlMaster 路径(存在时全部连接免密复用)。 */
+export interface SshLink {
+  target: SshTarget;
+  password?: string;
+  controlPath?: string;
+}
+
+/** ControlMaster 套接字固定前缀(mac/linux;/tmp 足短,满足 unix 域路径限长)。
+ *  宿主 Rust spawn 的 ssh 与插件共享同一路径 —— 约定即契约。 */
+export function controlPathFor(hostId: string): string {
+  const safe = hostId.replace(/[^a-zA-Z0-9_-]/g, "");
+  return `/tmp/ccgui-wsl-${safe}`;
+}
+
+/** 密码用户:建立 ControlMaster 主连接(一次 expect 送密码,之后所有
+ *  ssh —— 插件探针与宿主引擎 spawn —— 免密复用,直至 ControlPersist 到期)。
+ *  返回 controlPath;建立失败返回 null(调用方回落逐条密码)。 */
+export async function ensureControlMaster(link: SshLink, hostId: string): Promise<string | null> {
+  if (!link.password || isWindowsPlatform()) return null;
+  const cp = controlPathFor(hostId);
+  const { target } = link;
+  const script =
+    "set timeout 30\n" +
+    "set p $env(WSLSH_PASS)\n" +
+    "log_user 0\n" +
+    `spawn -noecho ssh -n -o ControlMaster=yes -o ControlPath=${cp} -o ControlPersist=8h -o StrictHostKeyChecking=accept-new -o NumberOfPasswordPrompts=1 -o ConnectTimeout=10 -p ${target.port} ${target.user}@${target.host} exit\n` +
+    "expect {\n" +
+    '  -re "(?i)(password|passphrase):" { send -- "$p\\r" }\n' +
+    "  eof { puts WSLEXIT:255; exit }\n" +
+    "}\n" +
+    "expect eof\n" +
+    'puts "WSLEXIT:[lindex [wait] 3]"\n';
+  try {
+    const r = await execRun("expect", ["-c", script], 40_000, { WSLSH_PASS: link.password });
+    const m = /WSLEXIT:(\d+)/.exec(r.stdout);
+    return m && m[1] === "0" ? cp : null;
+  } catch {
+    return null;
+  }
+}
+/** 远程会话摘要(claude code ~/.claude/projects jsonl;omp 等后续按需)。 */
+export interface RemoteSessionSummary {
+  sessionId: string;
+  updatedAt: number;
+  title: string;
+}
+
+/** 扫描发行版内指定工作区的 claude 会话(目录编码 = 非字母数字 → `-`;
+  * tab 行协议 sessionId/mtime/title,按时间倒序截 30 条)。 */
+export async function listRemoteSessions(
+  link: SshLink,
+  distro: string,
+  workspacePath: string,
+): Promise<RemoteSessionSummary[]> {
+  assertSafeToken("发行版名", distro);
+  if (/[^\x20-\x7e]/.test(workspacePath) || /["'\\]/.test(workspacePath)) {
+    throw new Error("路径含不支持的字符");
+  }
+  const script = [
+    'enc=$(printf %s "' + workspacePath + '" | tr -c "a-zA-Z0-9" "-")',
+    'case "$enc" in "~"*) enc="${enc#"~"}";; esac',
+    'base="$HOME/.claude/projects"',
+    'best=""',
+    'for d in "$base"/*/; do',
+    '  n=$(basename "$d")',
+    '  case "$n" in *"$enc"*) best="$d";; esac',
+    "done",
+    '[ -z "$best" ] && exit 0',
+    'for f in "$best"*.jsonl; do',
+    '  [ -f "$f" ] || continue',
+    '  id=$(basename "$f" .jsonl)',
+    '  ts=$(stat -c %Y "$f" 2>/dev/null || echo 0)',
+    '  title=$(head -c 6000 "$f" | grep -o "\\"content\\":\\"[^\\"]\\{1,60\\}" | head -1 | cut -c12-)',
+    '  printf "%s\\t%s\\t%s\\n" "$id" "$ts" "$title"',
+    'done | sort -t "\t" -k2 -rn | head -30',
+  ].join("\n");
+  const r = await sshRun(link, wslBashPayload(distro, script));
+  return r.stdout
+    .split(/\r?\n/)
+    .map((l) => l.replace(/\r$/, "").split("\t"))
+    .filter((c) => c.length >= 2 && c[0])
+    .map((c) => ({
+      sessionId: c[0] ?? "",
+      updatedAt: Number(c[1]) * 1000 || 0,
+      title: c[2] || "",
+    }));
+}
+
 /** 按行解析不过滤(tmd 行为;插件内一律走 parseProbeRows)。 */
 export function parseProbeLines(text: string): EngineProbe[] {
   const out: EngineProbe[] = [];
@@ -283,12 +372,15 @@ function sshAuthError(text: string): string | null {
 /** 单次远程执行。无密码 = ssh BatchMode（argv 直传）；有密码 = expect 包 ssh。
  *  Windows 客户端通常没有 expect，spawn 失败走下方 ENOENT 翻译。 */
 async function sshRun(link: SshLink, remote: string): Promise<{ code: number | null; stdout: string }> {
-  const { target, password } = link;
+  const { target, password, controlPath } = link;
   assertTarget(target);
-  if (!password) {
+  if (!password || controlPath) {
+    const opts = controlPath
+      ? ["-o", `ControlPath=${controlPath}`, "-o", "BatchMode=yes"]
+      : ["-o", "BatchMode=yes"];
     const r = await execRun(
       SSH_BIN,
-      [...SSH_OPTS, "-o", "BatchMode=yes", "-p", String(target.port), `${target.user}@${target.host}`, remote],
+      [...SSH_OPTS, ...opts, "-p", String(target.port), `${target.user}@${target.host}`, remote],
       60_000,
     );
     return { code: r.code, stdout: r.stdout };
@@ -315,6 +407,17 @@ export async function probeEnginesRemote(
   return parseProbeRows(r.stdout, bins);
 }
 
+/** 路径白名单(tmd 级):`[A-Za-z0-9_./~-]`,`~` 起始可用;空格/引号/`$`
+ *  一律拒绝(b64 载荷内脚本双引号包裹,靠白名单保证无注入面)。 */
+function assertSafePath(path: string): void {
+  if (path.length === 0 || /[^A-Za-z0-9_./~-]/.test(path)) {
+    throw new Error("路径含不支持的字符(暂不支持空格与引号)");
+  }
+}
+
+/** bash 双引号内 ~ 不展开 —— 脚本内对 `$p` 手动展开 ~ 前缀。 */
+const EXPAND_TILDE = 'case "$p" in "~"*) p="$HOME${p#~}";; esac; ';
+
 /** 目录懒加载(`ls -1ap`:目录带尾 `/`;`--` 挡 `-` 开头路径;过滤 . / ..)。
  *  对齐 Rust wsl_list_dir 的脚本与解析。 */
 export interface DirEntry {
@@ -324,11 +427,8 @@ export interface DirEntry {
 
 export async function listDirRemote(link: SshLink, distro: string, path: string): Promise<DirEntry[]> {
   assertSafeToken("发行版名", distro);
-  // 路径白名单:ASCII 且无引号/空格(bash 双引号内安全;~ 起始允许)。
-  if (!path || /[^\x20-\x7e]/.test(path) || /["'\\]/.test(path)) {
-    throw new Error("路径含不支持的字符(暂不支持空格与引号)");
-  }
-  const script = `ls -1ap -- "${path}" 2>/dev/null || echo "__WSL_LS_ERR__"`;
+  assertSafePath(path);
+  const script = `p="${path}"; ${EXPAND_TILDE}ls -1ap -- "$p" 2>/dev/null || echo "__WSL_LS_ERR__"`;
   const r = await sshRun(link, wslBashPayload(distro, script));
   if (r.stdout.includes("__WSL_LS_ERR__")) throw new Error(`目录不存在或不可读: ${path}`);
   return r.stdout
@@ -353,10 +453,8 @@ export async function readFileRemote(
   maxBytes: number,
 ): Promise<RemoteFileText> {
   assertSafeToken("发行版名", distro);
-  if (!path || /[^\x20-\x7e]/.test(path) || /["'\\]/.test(path)) {
-    throw new Error("路径含不支持的字符(暂不支持空格与引号)");
-  }
-  const script = `f="${path}"; [ -f "$f" ] || { echo missing; exit 0; }; sz=$(wc -c < "$f"); echo "size=$sz"; if [ "$sz" -le ${maxBytes} ]; then base64 < "$f"; fi`;
+  assertSafePath(path);
+  const script = `p="${path}"; ${EXPAND_TILDE}[ -f "$p" ] || { echo missing; exit 0; }; sz=$(wc -c < "$p"); echo "size=$sz"; if [ "$sz" -le ${maxBytes} ]; then base64 < "$p"; fi`;
   const r = await sshRun(link, wslBashPayload(distro, script));
   const text = r.stdout;
   if (/^missing$/m.test(text.trim())) throw new Error("文件不存在");

@@ -13,11 +13,19 @@ export interface WslHostEntry {
   user: string;
   /** 密码(可选;明文存本机插件 KV —— expect 非交互送入用)。 */
   password?: string;
+  /** ControlMaster 套接字路径(密码用户连接成功后建立;key 用户无)。 */
+  controlPath?: string;
 }
 
 export interface WslWorkspaceMeta {
   hostId: string;
   distro: string;
+  /** 远程宿主连接参数(宿主 spawn 引擎时组装 ssh argv 用)。 */
+  host: string;
+  port: number;
+  user: string;
+  /** ControlMaster 路径;缺省 = 宿主侧 BatchMode(key 认证)。 */
+  controlPath?: string;
 }
 
 export interface WslPrefs {
@@ -44,6 +52,8 @@ function sanitizePrefs(v: unknown): WslPrefs {
           port: Number(h.port) || 22,
           user: String(h.user ?? ""),
           password: typeof h.password === "string" && h.password ? h.password.slice(0, 200) : undefined,
+          controlPath:
+            typeof h.controlPath === "string" && h.controlPath ? h.controlPath.slice(0, 200) : undefined,
         }))
         .filter((h) => h.id && h.host && h.user)
     : [];
@@ -52,8 +62,18 @@ function sanitizePrefs(v: unknown): WslPrefs {
     for (const [k, v] of Object.entries(p.workspaces)) {
       if (typeof k === "string" && k && typeof v === "object" && v !== null) {
         const meta = v as Partial<WslWorkspaceMeta>;
-        if (meta.hostId && meta.distro) {
-          workspaces[k] = { hostId: String(meta.hostId), distro: String(meta.distro) };
+        if (meta.hostId && meta.distro && meta.host && meta.user) {
+          workspaces[k] = {
+            hostId: String(meta.hostId),
+            distro: String(meta.distro),
+            host: String(meta.host),
+            port: Number(meta.port) || 22,
+            user: String(meta.user),
+            controlPath:
+              typeof meta.controlPath === "string" && meta.controlPath
+                ? meta.controlPath.slice(0, 200)
+                : undefined,
+          };
         }
       }
     }

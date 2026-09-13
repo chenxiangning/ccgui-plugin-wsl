@@ -12,7 +12,7 @@ import { useState } from "react";
 import { CaretDownIcon, CaretRightIcon, PlusIcon } from "./icons";
 import { copy } from "./host";
 import type { WslPrefs, WslHostEntry } from "./store";
-import { probeRemote, type SshLink, type SshTarget, type WslInfo } from "./wsl";
+import { ensureControlMaster, controlPathFor, probeRemote, type SshLink, type WslInfo } from "./wsl";
 import { DistroPanel, Hl } from "./DistroPanel";
 
 /** 非 Windows 开发机(mac)无 wsl.exe/远程宿主时的 UI 预览桩:仅 DEV 生效(tmd 同款)。 */
@@ -139,8 +139,8 @@ export function WslRemoteSection({
   };
 
   const link = (h: WslHostEntry): SshLink => {
-    const target: SshTarget = { host: h.host, port: h.port, user: h.user };
-    return { target, password: h.password || undefined };
+    const target = { host: h.host, port: h.port, user: h.user };
+    return { target, password: h.password || undefined, controlPath: h.controlPath };
   };
 
   const probe = async () => {
@@ -149,7 +149,17 @@ export function WslRemoteSection({
     setError(null);
     setOpenDistro(null);
     try {
-      const r = await probeRemote(link(selected));
+      let r = await probeRemote(link(selected));
+      if (r?.available && selected.password && !selected.controlPath) {
+        // 密码用户:连接成功即建立 ControlMaster,此后探针/宿主引擎 spawn 免密。
+        const cp = await ensureControlMaster(link(selected), selected.id);
+        if (cp) {
+          updatePrefs({
+            hosts: hosts.map((x) => (x.id === selected.id ? { ...x, controlPath: cp } : x)),
+          });
+          r = await probeRemote({ target: link(selected).target, controlPath: cp });
+        }
+      }
       const eff = r?.available ? r : import.meta.env.DEV ? DEV_REMOTE_FALLBACK : null;
       setInfo(eff);
       /* 连接成功即自动展开默认发行版的探针面板(tmd 2026-09-14:免二次点击)。 */
