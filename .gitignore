@@ -1,0 +1,6 @@
+node_modules/
+dist/
+*.log
+# 构建产物落仓库根(宿主「从本地目录安装」直接指向仓库根,Obsidian 约定)
+/main.js
+/styles.css
