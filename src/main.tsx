@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { PluginActivate } from "./ccgui-plugin";
 import { WslCard } from "./WslCard";
 import { FileTreePanel } from "./FileTreePanel";
+import { AddWorkspacePage, openAddWorkspacePage } from "./AddWorkspacePage";
 import { copy, setHostCtx } from "./host";
 
 /**
@@ -76,6 +77,31 @@ const activate: PluginActivate = (ctx) => {
         }),
       ),
     component: FileTabContainer,
+  });
+
+  // 「+」菜单行 + 独立添加页(tmd AddWslTab 复刻):宿主现成挂点,零宿主 UI 改动。
+  ctx.ui.registerAddMenuRow({
+    key: "wsl-workspace",
+    label: () => copy(ctx.host.locale).addWorkspaceBtn,
+    description: () => copy(ctx.host.locale).addPageDesc,
+    onSelect: openAddWorkspacePage,
+  });
+
+  function AddPageContainer() {
+    const ref = h.useRef<HTMLDivElement | null>(null);
+    h.useEffect(() => {
+      if (!ref.current) return;
+      const root = createRoot(ref.current);
+      root.render(<AddWorkspacePage locale={ctx.host.locale} />);
+      return () => root.unmount();
+    }, []);
+    return h.createElement("div", { ref, className: "wsl-plugin-root" });
+  }
+
+  ctx.ui.registerPage({
+    key: "add-workspace",
+    title: () => copy(ctx.host.locale).addPageTitle,
+    component: AddPageContainer,
   });
 
   // ctx 注册由宿主 disposer 栈兜底;React root 随容器卸载。

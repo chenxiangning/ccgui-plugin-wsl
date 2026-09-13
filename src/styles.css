@@ -317,6 +317,21 @@
   font: inherit;
 }
 
+/* ---- 添加 WSL 工作区页 ---- */
+.wsl-addpage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 12px 4px;
+}
+.wsl-addpage-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* ---- WSL 文件面板(panel-tab) ---- */
 .wsl-file-root {
   display: flex;

@@ -16,6 +16,8 @@
     "exec:ssh",
     "exec:expect",
     "host:workspace",
-    "host:session"
+    "host:session",
+    "ui:add-menu",
+    "ui:page"
   ]
 }

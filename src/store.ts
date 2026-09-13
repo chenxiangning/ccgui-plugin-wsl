@@ -26,6 +26,10 @@ export interface WslWorkspaceMeta {
   user: string;
   /** ControlMaster 路径;缺省 = 宿主侧 BatchMode(key 认证)。 */
   controlPath?: string;
+  /** 发行版内工作区路径(宿主 spawn 的 cd 目标;= 登记键)。 */
+  workspace?: string;
+  /** 引擎 bin → 发行版内绝对路径(探针检出;宿主 spawn 用它替换本机 argv[0])。 */
+  enginePaths?: Record<string, string>;
 }
 
 export interface WslPrefs {
@@ -63,6 +67,14 @@ function sanitizePrefs(v: unknown): WslPrefs {
       if (typeof k === "string" && k && typeof v === "object" && v !== null) {
         const meta = v as Partial<WslWorkspaceMeta>;
         if (meta.hostId && meta.distro && meta.host && meta.user) {
+          const enginePaths: Record<string, string> = {};
+          if (typeof meta.enginePaths === "object" && meta.enginePaths !== null) {
+            for (const [bin, path] of Object.entries(meta.enginePaths)) {
+              if (bin && typeof path === "string" && path.startsWith("/")) {
+                enginePaths[bin.slice(0, 40)] = path.slice(0, 300);
+              }
+            }
+          }
           workspaces[k] = {
             hostId: String(meta.hostId),
             distro: String(meta.distro),
@@ -73,6 +85,8 @@ function sanitizePrefs(v: unknown): WslPrefs {
               typeof meta.controlPath === "string" && meta.controlPath
                 ? meta.controlPath.slice(0, 200)
                 : undefined,
+            workspace: typeof meta.workspace === "string" && meta.workspace ? meta.workspace.slice(0, 300) : undefined,
+            enginePaths: Object.keys(enginePaths).length ? enginePaths : undefined,
           };
         }
       }

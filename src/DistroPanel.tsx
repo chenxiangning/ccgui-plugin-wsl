@@ -11,7 +11,8 @@
 export const PROBE_BINS = ["claude", "codex", "omp", "dsh", "gemini", "qwen"];
 
 import { useCallback, useEffect, useState } from "react";
-import { copy, getHostCtx } from "./host";
+import { copy } from "./host";
+import { addWorkspaceToHost } from "./AddWorkspacePage";
 import type { WslPrefs, WslWorkspaceMeta } from "./store";
 import {
   listDirRemote,
@@ -21,10 +22,6 @@ import {
   type SshLink,
   type WslDistro,
 } from "./wsl";
-
-interface HostBridgeWorkspaces {
-  add?: (path: string, meta: { wsl: WslWorkspaceMeta }) => Promise<unknown>;
-}
 
 function joinPath(base: string, name: string): string {
   if (base === "/" ) return `/${name}`;
@@ -52,6 +49,8 @@ export function DistroPanel({
   const [dir, setDir] = useState<string | null>(null);
   const [dirErr, setDirErr] = useState<string | null>(null);
   const [added, setAdded] = useState<string | null>(null);
+  const [regErr, setRegErr] = useState<string | null>(null);
+  const [registering, setRegistering] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,11 +83,13 @@ export function DistroPanel({
     [link, distro.name],
   );
 
-  const register = () => {
+  const register = async () => {
     if (!dir || dir === "~") return;
     const path = dir;
     const host = prefs.hosts.find((x) => x.id === prefs.remoteHostId);
     if (!host) return;
+    const enginePaths: Record<string, string> = {};
+    for (const p of probes ?? []) if (p.path) enginePaths[p.bin] = p.path;
     const meta: WslWorkspaceMeta = {
       hostId: host.id,
       distro: distro.name,
@@ -96,16 +97,19 @@ export function DistroPanel({
       port: host.port,
       user: host.user,
       controlPath: host.controlPath,
+      workspace: path,
+      enginePaths: Object.keys(enginePaths).length ? enginePaths : undefined,
     };
-    updatePrefs({ workspaces: { ...prefs.workspaces, [path]: meta } });
-    /* 宿主挂点(可选链):codemoss ≥ 适配版会把路径登记进侧栏工作区。 */
-    const api = getHostCtx() as unknown as { workspaces?: HostBridgeWorkspaces };
+    setRegErr(null);
     try {
-      void Promise.resolve(api.workspaces?.add?.(path, { wsl: meta })).catch(() => {});
-    } catch {
-      /* 宿主未升级:仅插件内登记。 */
+      // 宿主挂点:登记进侧栏工作区(meta 带连接参数 + 发行版内 bin 路径)。
+      // 失败必须上抛 —— 只有真登记成功才标记「已登记」。
+      await addWorkspaceToHost(path, meta);
+      updatePrefs({ workspaces: { ...prefs.workspaces, [path]: meta } });
+      setAdded(path);
+    } catch (e) {
+      setRegErr(e instanceof Error ? e.message : String(e));
     }
-    setAdded(path);
   };
 
   const up = dir && dir !== "~" && dir !== "/" ? dir.replace(/\/[^/]+$/, "") || "/" : null;
@@ -170,10 +174,19 @@ export function DistroPanel({
           </div>
         )}
         <div className="wsl-actions">
-          <button type="button" className="wsl-btn primary" disabled={!dir || dir === "~"} onClick={register}>
-            {t.addWorkspaceBtn}
+          <button
+            type="button"
+            className="wsl-btn primary"
+            disabled={!dir || dir === "~" || registering}
+            onClick={() => {
+              setRegistering(true);
+              void register().finally(() => setRegistering(false));
+            }}
+          >
+            {registering ? t.statusDetecting : t.addWorkspaceBtn}
           </button>
         </div>
+        {regErr && <div className="wsl-remote-err">{regErr}</div>}
         {(added || registered) && <div className="wsl-hint">{t.addedHint(added ?? dir ?? "")}</div>}
       </div>
     </div>
