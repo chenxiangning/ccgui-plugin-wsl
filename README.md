@@ -16,6 +16,10 @@ CC GUI 插件:WSL 发行版管理器 + 远程 WSL 工作区。能力与 UI 复�
   `~/.profile` 与 `~/.local/bin`;`/mnt/*` Windows 互操作路径不计)。探针输出
   白名单过滤 —— wsl.exe 的杂散警告行(冷启动/localhost 代理,UTF-16 经
   lossy 常变乱码)一律不认。bins 为固定清单 `PROBE_BINS`。
+- **乱码防御**:wsl.exe 在 PTY 下的 NAT/localhost 代理警告(中文 UTF-16LE
+  经 lossy 成乱码)在 ls/读文件/会话扫描解析前统一剥除;`wsl:` 开头行不进 UI。
+- **路径**:白名单 `[A-Za-z0-9_./~ -]`;无空格不加引号(tmd 真机形态,bash
+  原生 tilde 展开),含空格才单引号包裹。
 - **远程探测**:经 `ssh` 连 Windows 宿主跑同样的诊断命令。认证两路:
   密码(macOS/Linux 经系统自带 `expect` 起 PTY 非交互送入,密码经 env 传递
   不落 argv,明文存本机插件 KV)或 SSH key(`BatchMode`);Windows 客户端

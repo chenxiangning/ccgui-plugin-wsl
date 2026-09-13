@@ -258,7 +258,7 @@ export async function listRemoteSessions(
   assertSafeToken("发行版名", distro);
   assertSafePath(workspacePath);
   const script = [
-    "enc=$(printf %s " + workspacePath + ' | tr -c "a-zA-Z0-9" "-")',
+    "enc=$(printf %s " + shellSafePath(workspacePath) + ' | tr -c "a-zA-Z0-9" "-")',
     'base="$HOME/.claude/projects"',
     'best=""',
     'for d in "$base"/*/; do',
@@ -275,7 +275,7 @@ export async function listRemoteSessions(
     'done | sort -t "\t" -k2 -rn | head -30',
   ].join("\n");
   const r = await sshRun(link, wslBashPayload(distro, script));
-  return r.stdout
+  return stripWslWarnings(r.stdout)
     .split(/\r?\n/)
     .map((l) => l.replace(/\r$/, "").split("\t"))
     .filter((c) => c.length >= 2 && c[0])
@@ -404,31 +404,45 @@ export async function probeEnginesRemote(
   return parseProbeRows(r.stdout, bins);
 }
 
-/** 路径白名单(tmd 级,Rust validate_path_component 同款):仅
- *  `[A-Za-z0-9_./~-]`;`~` 起始可用。路径在脚本里**不加引号**直排 ——
- *  bash 对行首 `~` 做原生 tilde 展开(tmd 2026-09-13 真机验证的形态);
- *  白名单保证无注入面。空格路径不支持,报错提示。 */
+/** 路径白名单(tmd 级 + 空格):`[A-Za-z0-9_./~ -]`;`~` 起始可用,禁引号/
+ *  控制字符。脚本里经 shellSafePath 排布 —— 无空格不加引号直排(bash 原生
+ *  tilde 展开,tmd 2026-09-13 真机形态),含空格才单引号包裹(内容白名单
+ *  已保证无单引号,包裹恒安全)。 */
 function assertSafePath(path: string): void {
-  if (path.length === 0 || /[^A-Za-z0-9_./~-]/.test(path)) {
-    throw new Error("路径含不支持的字符(暂不支持空格与引号)");
+  if (path.length === 0 || /[^A-Za-z0-9_./~ -]/.test(path)) {
+    throw new Error("路径含不支持的字符(引号与控制字符)");
   }
 }
 
+/** assertSafePath 通过后的脚本排布:见上。 */
+export function shellSafePath(path: string): string {
+  return / /.test(path) ? `'${path}'` : path;
+}
+
 /** 目录懒加载(`ls -1ap`:目录带尾 `/`;`--` 挡 `-` 开头路径;过滤 . / ..)。
- *  对齐 Rust wsl_list_dir:路径不加引号,退出码判失败(无自造错误标记)。 */
+ *  退出码判失败;`wsl:` 开头的行是 wsl.exe 的 NAT/localhost 代理警告
+ *  (PTY 下中文 UTF-16LE 经 lossy 成乱码),一律剥除。 */
 export interface DirEntry {
   name: string;
   isDir: boolean;
 }
 
+/** wsl.exe 包装层警告行(NAT 提示等,常为乱码),任何解析前剥除。 */
+function stripWslWarnings(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .filter((l) => !/^wsl[.:]/i.test(l.trim()))
+    .join("\n");
+}
+
 export async function listDirRemote(link: SshLink, distro: string, path: string): Promise<DirEntry[]> {
   assertSafeToken("发行版名", distro);
   assertSafePath(path);
-  const r = await sshRun(link, wslBashPayload(distro, `ls -1ap -- ${path}`));
+  const r = await sshRun(link, wslBashPayload(distro, `ls -1ap -- ${shellSafePath(path)}`));
   if (r.code !== null && r.code !== 0) {
     throw new Error(`目录不存在或不可读: ${path}(code=${r.code})`);
   }
-  return r.stdout
+  return stripWslWarnings(r.stdout)
     .split(/\r?\n/)
     .map((l) => l.replace(/\r$/, ""))
     .filter((l) => l && l !== "./" && l !== "../" && l !== "." && l !== "..")
@@ -451,9 +465,10 @@ export async function readFileRemote(
 ): Promise<RemoteFileText> {
   assertSafeToken("发行版名", distro);
   assertSafePath(path);
-  const script = `[ -f ${path} ] || {{ echo missing; exit 0; }}; sz=$(wc -c < ${path}); echo "size=$sz"; if [ "$sz" -le ${maxBytes} ]; then base64 < ${path}; fi`;
+  const p = shellSafePath(path);
+  const script = `[ -f ${p} ] || {{ echo missing; exit 0; }}; sz=$(wc -c < ${p}); echo "size=$sz"; if [ "$sz" -le ${maxBytes} ]; then base64 < ${p}; fi`;
   const r = await sshRun(link, wslBashPayload(distro, script));
-  const text = r.stdout;
+  const text = stripWslWarnings(r.stdout);
   if (/^missing$/m.test(text.trim())) throw new Error("文件不存在");
   const m = /size=(\d+)/.exec(text);
   if (!m) throw new Error("无法读取文件大小");

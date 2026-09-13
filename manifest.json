@@ -1,7 +1,7 @@
 {
   "id": "wsl",
   "name": "WSL 管理器",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "sdkVersion": "^0.3",
   "minAppVersion": "1.0.0",
   "author": "chenxiangning",
