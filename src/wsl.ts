@@ -427,9 +427,11 @@ export interface DirEntry {
   isDir: boolean;
 }
 
-/** wsl.exe 包装层警告行(NAT 提示等,常为乱码),任何解析前剥除。 */
+/** wsl.exe 包装层警告行(NAT 提示等,常为乱码),任何解析前剥除。
+ *  警告段是 UTF-16LE,经 lossy 后 NUL 夹杂 —— 必须先剥 NUL 再匹配
+ *  `wsl:` 前缀(真机 0.3.2 教训:\u0000wsl:\u0000 形态逃过裸正则)。 */
 function stripWslWarnings(text: string): string {
-  return text
+  return decodeWslOutput(text)
     .split(/\r?\n/)
     .filter((l) => !/^wsl[.:]/i.test(l.trim()))
     .join("\n");
