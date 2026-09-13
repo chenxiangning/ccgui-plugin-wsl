@@ -26,6 +26,8 @@ const KNOWN_PERMISSIONS = new Set([
   "events",
   "network:none",
   "composer:draft",
+  "host:workspace",
+  "host:session",
 ]);
 
 /** network: 授权体：<host>（任意端口）/ <host>:<port> / <host>:<a>-<b>（含端点）。 */
