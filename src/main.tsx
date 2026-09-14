@@ -1,10 +1,10 @@
 import stylesCss from "./styles.css?raw";
 
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import type { PluginActivate } from "./ccgui-plugin";
 import { WslCard } from "./WslCard";
 import { FileTreePanel } from "./FileTreePanel";
-import { AddWorkspacePage, openAddWorkspacePage } from "./AddWorkspacePage";
+import { openAddWorkspacePop, AddWorkspacePop, WSL_ADD_POP_EVENT } from "./AddWorkspacePop";
 import { copy, setHostCtx } from "./host";
 import { registerRemoteFileHook } from "./remoteFiles";
 /**
@@ -17,7 +17,7 @@ const activate: PluginActivate = (ctx) => {
   // 样式内嵌注入:本地目录安装的宿主可能不加载插件目录的 styles.css
   // (marketplace 三件套才保证),内嵌进 bundle 万无一失。
   ctx.theme.injectCss(stylesCss);
-  registerRemoteFileHook();
+  const unregisterRemoteFiles = registerRemoteFileHook();
   const h = ctx.react;
 
   const svgProps = {
@@ -83,33 +83,36 @@ const activate: PluginActivate = (ctx) => {
     component: FileTabContainer,
   });
 
-  // 「+」菜单行 + 独立添加页(tmd AddWslTab 复刻):宿主现成挂点,零宿主 UI 改动。
+  // 添加入口:「+」菜单行 → 左侧滑出浮层(tmd wsadd-pop 复刻,
+  // createPortal 挂 body;独立 hash 页已下线)。浮层 React root 独立
+  // 于宿主树;关闭即 unmount。
+  let popRoot: Root | null = null;
+  const onPopOpen = () => {
+    if (popRoot) return;
+    const hostDiv = document.createElement("div");
+    document.body.appendChild(hostDiv);
+    popRoot = createRoot(hostDiv);
+    popRoot.render(<AddWorkspacePop onClose={() => {
+      popRoot?.unmount();
+      hostDiv.remove();
+      popRoot = null;
+    }} />);
+  };
+  window.addEventListener(WSL_ADD_POP_EVENT, onPopOpen);
+
   ctx.ui.registerAddMenuRow({
     key: "wsl-workspace",
     label: () => copy(ctx.host.locale).addWorkspaceBtn,
     description: () => copy(ctx.host.locale).addPageDesc,
-    onSelect: openAddWorkspacePage,
+    onSelect: openAddWorkspacePop,
   });
 
-  function AddPageContainer() {
-    const ref = h.useRef<HTMLDivElement | null>(null);
-    h.useEffect(() => {
-      if (!ref.current) return;
-      const root = createRoot(ref.current);
-      root.render(<AddWorkspacePage locale={ctx.host.locale} />);
-      return () => root.unmount();
-    }, []);
-    return h.createElement("div", { ref, className: "wsl-plugin-root" });
-  }
-
-  ctx.ui.registerPage({
-    key: "add-workspace",
-    title: () => copy(ctx.host.locale).addPageTitle,
-    component: AddPageContainer,
-  });
-
-  // ctx 注册由宿主 disposer 栈兜底;React root 随容器卸载。
-  return () => setHostCtx(null);
+  return () => {
+    window.removeEventListener(WSL_ADD_POP_EVENT, onPopOpen);
+    popRoot?.unmount();
+    unregisterRemoteFiles();
+    setHostCtx(null);
+  };
 };
 
 export default activate;
