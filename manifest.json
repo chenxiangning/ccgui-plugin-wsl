@@ -6,7 +6,7 @@
   "minAppVersion": "1.0.0",
   "author": "chenxiangning",
   "repo": "chenxiangning/ccgui-plugin-wsl",
-  "description": "WSL 发行版管理器(复刻 tmd-cli WSL 面板):本机诊断与设默认、引擎探针、远程宿主探测(密码/key),WSL 工作区登记、发行版内文件面板与 claude 会话列表/打开。",
+  "description": "WSL 发行版管理器:本机诊断与设默认、引擎探针、远程宿主(密码/key)、WSL 工作区登记、发行版内文件面板,claude/codex/omp 会话列表与历史回放。",
   "tier": "js",
   "permissions": [
     "ui:settings-section",
