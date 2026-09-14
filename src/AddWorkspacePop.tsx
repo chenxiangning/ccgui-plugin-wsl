@@ -20,12 +20,7 @@ import {
   type WslDistro,
   type WslInfo,
 } from "./wsl";
-import { addWorkspaceToHost } from "./AddWorkspacePage";
-
-function joinPath(base: string, name: string): string {
-  if (base === "~") return `~/${name}`;
-  return `${base.replace(/\/+$/, "")}/${name}`;
-}
+import { addWorkspaceToHost, joinPath } from "./store";
 
 function parentOf(p: string): string {
   if (p === "~" || p === "/") return p;
@@ -63,10 +58,13 @@ function DirBrowser({
         .then((r) => {
           setDir(path);
           setEntries(r.filter((e) => e.isDir));
+          // tmd 语义:浏览到哪 = 选中到哪(独立 target 态会让行点击永不
+          // 回填,添加按钮恒灰)。
+          onPick(path);
         })
         .catch((e) => setErr(e instanceof Error ? e.message : String(e)));
     },
-    [link, distro],
+    [link, distro, onPick],
   );
 
   useEffect(() => {
@@ -80,9 +78,6 @@ function DirBrowser({
           {t.goUp}
         </button>
         <code title={dir}>{dir}</code>
-        <button type="button" className="wsl-btn ghost" onClick={() => onPick(dir)} disabled={dir === "~"}>
-          {t.browse}
-        </button>
         <button type="button" className="wsl-btn ghost" onClick={() => load(dir)}>
           {t.refresh}
         </button>

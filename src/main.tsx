@@ -7,6 +7,8 @@ import { FileTreePanel } from "./FileTreePanel";
 import { openAddWorkspacePop, AddWorkspacePop, WSL_ADD_POP_EVENT } from "./AddWorkspacePop";
 import { copy, setHostCtx } from "./host";
 import { registerRemoteFileHook } from "./remoteFiles";
+import { registerWorkspaceUIHook } from "./workspaceUI";
+import { registerRemoteSessionSource } from "./sessionSource";
 /**
  * 插件入口:宿主动态 import main.js 并以 PluginContext 调默认导出。
  * 双段挂载(react-doctor 同款):宿主 React 树只渲染容器(经 ctx.react),
@@ -18,6 +20,8 @@ const activate: PluginActivate = (ctx) => {
   // (marketplace 三件套才保证),内嵌进 bundle 万无一失。
   ctx.theme.injectCss(stylesCss);
   const unregisterRemoteFiles = registerRemoteFileHook();
+  registerWorkspaceUIHook();
+  const unregisterSessionSource = registerRemoteSessionSource();
   const h = ctx.react;
 
   const svgProps = {
@@ -106,11 +110,11 @@ const activate: PluginActivate = (ctx) => {
     description: () => copy(ctx.host.locale).addPageDesc,
     onSelect: openAddWorkspacePop,
   });
-
   return () => {
     window.removeEventListener(WSL_ADD_POP_EVENT, onPopOpen);
     popRoot?.unmount();
     unregisterRemoteFiles();
+    unregisterSessionSource();
     setHostCtx(null);
   };
 };

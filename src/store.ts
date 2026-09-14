@@ -1,4 +1,5 @@
-import { getHostCtx } from "./host";
+import { copy, getHostCtx } from "./host";
+import type { SshLink } from "./wsl";
 
 /** 插件 KV 持久化(ctx.storage 单键对象;react-doctor store.ts 同款思路)。
  *  tmd 把 defaultDistro/remoteHostId 放宿主 settings.wsl 域 —— 本插件无宿主
@@ -100,10 +101,48 @@ function sanitizePrefs(v: unknown): WslPrefs {
   };
 }
 
+let prefsCache: WslPrefs | null = null;
+
+/** 同步读取最近一次加载/保存的 prefs(workspace-UI 桥用;未加载过 = null)。 */
+export function cachedPrefs(): WslPrefs | null {
+  return prefsCache;
+}
+
 export async function loadPrefs(): Promise<WslPrefs> {
-  return sanitizePrefs(await getHostCtx().storage.get<WslPrefs>(KEY));
+  prefsCache = sanitizePrefs(await getHostCtx().storage.get<WslPrefs>(KEY));
+  return prefsCache;
 }
 
 export function savePrefs(prefs: WslPrefs): Promise<void> {
+  prefsCache = prefs;
   return getHostCtx().storage.set(KEY, prefs);
+}
+
+/** 工作区元数据 → ssh 链路(共用形态:不带 meta.controlPath 快照 —— 快照的
+ *  ControlMaster 套接字陈旧时 ssh 255,现场连接才可靠)。 */
+export function linkOf(prefs: WslPrefs, meta: WslWorkspaceMeta): SshLink | null {
+  const host = prefs.hosts.find((h) => h.id === meta.hostId);
+  if (!host) return null;
+  return {
+    target: { host: host.host, port: host.port, user: host.user },
+    password: host.password || undefined,
+  };
+}
+
+/** 远程目录浏览器共用:base 下拼子项(`~`/`/` 特判)。 */
+export function joinPath(base: string, name: string): string {
+  if (base === "/") return `/${name}`;
+  if (base === "~") return `~/${name}`;
+  return `${base.replace(/\/+$/, "")}/${name}`;
+}
+
+/** 登记进宿主侧栏(错误上抛,由调用方呈现)。 */
+export async function addWorkspaceToHost(path: string, meta: WslWorkspaceMeta): Promise<void> {
+  const api = getHostCtx() as unknown as {
+    workspaces?: { add?: (p: string, m: Record<string, unknown>) => Promise<void> };
+  };
+  if (!api.workspaces?.add) {
+    throw new Error(copy("zh").hostMountMissing);
+  }
+  await api.workspaces.add(path, { wsl: meta });
 }

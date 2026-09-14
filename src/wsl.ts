@@ -39,7 +39,7 @@ export interface EngineProbe {
   path: string | null;
 }
 
-export interface SshTarget {
+interface SshTarget {
   user: string;
   host: string;
   port: number;
@@ -52,7 +52,7 @@ export const PROBE_BINS = ["claude", "codex", "omp", "dsh", "gemini", "qwen"];
 const BIN = "wsl.exe";
 const SSH_BIN = "ssh";
 
-export function isWindowsPlatform(): boolean {
+function isWindowsPlatform(): boolean {
   return navigator.userAgent.includes("Windows");
 }
 
@@ -73,7 +73,7 @@ function decodeWslOutput(text: string): string {
 /** 解析 `wsl.exe -l -v` 表（locale 无关）：数据行 = 3 列（或 `*` 打头的 4 列）且
  *  末列 ∈ {1,2}（容忍 "2.0"）。表头任何语言都因末列非版本号被排除。
  *  已知限制：发行版名含空格会错位（Rust 侧同限制）。 */
-export function parseWslList(text: string): WslDistro[] {
+function parseWslList(text: string): WslDistro[] {
   const out: WslDistro[] = [];
   for (const line of text.split(/\r?\n/)) {
     const cols = line.trim().split(/\s+/);
@@ -98,7 +98,7 @@ export function parseWslList(text: string): WslDistro[] {
 }
 
 /** 用 `--running` 表的名字集合（ASCII 大小写不敏感）给全量表打 running 标。 */
-export function markRunning(distros: WslDistro[], runningText: string): void {
+function markRunning(distros: WslDistro[], runningText: string): void {
   const names = parseWslList(runningText).map((d) => d.name.toLowerCase());
   for (const d of distros) d.running = names.includes(d.name.toLowerCase());
 }
@@ -169,7 +169,7 @@ export async function setDefaultDistro(name: string): Promise<boolean> {
 
 /** 引擎探针脚本（对齐 Rust wsl_probe_engines）：登录 shell 语义补 ~/.profile 与
  *  ~/.local/bin，逐 binary `command -v`，行协议 `bin:path`。 */
-export function engineProbeScript(bins: string[]): string {
+function engineProbeScript(bins: string[]): string {
   const list = bins.join(" ");
   return (
     '[ -r "$HOME/.profile" ] && . "$HOME/.profile" >/dev/null 2>&1 || true; ' +
@@ -181,7 +181,7 @@ export function engineProbeScript(bins: string[]): string {
 /** 解析 `bin:path` 行协议 → 每个请求的 bin 恰好一行(缺行 = 未检出)。
  *  仅认请求过的 bins:wsl.exe 的杂散输出(冷启动提示/localhost 代理警告,
  *  经 PTY+lossy 常变乱码)一律不认;/mnt/* = Windows 互操作误检,视为未检出。 */
-export function parseProbeRows(text: string, bins: string[]): EngineProbe[] {
+function parseProbeRows(text: string, bins: string[]): EngineProbe[] {
   const allow: Record<string, true> = {};
   for (const b of bins) allow[b] = true;
   const found: Record<string, string | null> = {};
@@ -220,10 +220,20 @@ export async function ensureControlMaster(link: SshLink, hostId: string): Promis
   if (!link.password || isWindowsPlatform()) return null;
   const cp = controlPathFor(hostId);
   const { target } = link;
+  // 快路径:主连接仍活着(-O check 只摸本地套接字,免密码免 expect)。
+  const check = await execRun(
+    SSH_BIN,
+    ["-O", "check", "-o", `ControlPath=${cp}`, "-p", String(target.port), `${target.user}@${target.host}`],
+    8_000,
+  ).catch(() => null);
+  if (check?.code === 0) return cp;
   const script =
     "set timeout 30\n" +
     "set p $env(WSLSH_PASS)\n" +
     "log_user 0\n" +
+    // 陈旧套接字(ControlPersist 到期/休眠后 master 消失)会让
+    // ControlMaster=yes 静默降级成单次连接 —— 重建前必须删掉。
+    `catch { file delete -force ${cp} }\n` +
     `spawn -noecho ssh -n -o ControlMaster=yes -o ControlPath=${cp} -o ControlPersist=8h -o StrictHostKeyChecking=accept-new -o NumberOfPasswordPrompts=1 -o ConnectTimeout=10 -p ${target.port} ${target.user}@${target.host} exit\n` +
     "expect {\n" +
     '  -re "(?i)(password|passphrase):" { send -- "$p\\r" }\n' +
@@ -239,71 +249,107 @@ export async function ensureControlMaster(link: SshLink, hostId: string): Promis
     return null;
   }
 }
-/** 远程会话摘要(claude code ~/.claude/projects jsonl;omp 等后续按需)。 */
-export interface RemoteSessionSummary {
+/** 远程会话摘要(distro 内已探针 CLI 的会话库;path = distro 内 jsonl 绝对
+ *  路径,宿主历史回放经 ssh 通道 cat 该文件)。 */
+interface RemoteSessionSummary {
+  engine: string;
   sessionId: string;
   updatedAt: number;
   title: string;
+  path: string;
 }
 
-/** 扫描发行版内指定工作区的 claude 会话(目录编码 = 非字母数字 → `-`;
-  * tab 行协议 sessionId/mtime/title,按时间倒序截 30 条)。 */
+/** 扫描发行版内指定工作区的历史会话,按时间倒序截 30 条。只扫 `engines`
+ *  (探针 enginePaths 的键)里已知会话库的引擎;未探出 = 不扫。行协议
+ *  engine\tsessionId\tmtime\ttitle\tpath。
+ *  - claude:`~/.claude/projects/<编码路径>/*.jsonl`,编码 = 非 a-zA-Z0-9 → `-`
+ *    (路径先做 `~` 展开;目录匹配取路径边界,`/a/b` 不误吞 `/a/b2`);
+ *  - codex:`~/.codex/sessions/<年>/<月>/<日>/rollout-*.jsonl`,cwd 在首行
+ *    session_meta 里,前缀匹配工作区;标题取首条非环境上下文的用户输入,
+ *    只扫每文件前 200KB;
+ *  - omp:`~/.pi/agent/sessions/<编码>/`,编码 = `-` + 非 a-zA-Z0-9(点号保留)
+ *    → `-` 再各补一杠(真机样本 `--home-cxn-.ssh--`/`--Users-...--` 吻合);
+ *  - dsh/gemini/qwen:暂无已知会话库,检出也不扫。 */
 export async function listRemoteSessions(
   link: SshLink,
   distro: string,
   workspacePath: string,
+  engines: string[],
 ): Promise<RemoteSessionSummary[]> {
   assertSafeToken("发行版名", distro);
   assertSafePath(workspacePath);
+  const wsQ = quoteRemotePath(workspacePath);
+  const has = (e: string) => engines.includes(e);
   const script = [
-    "enc=$(printf %s " + shellSafePath(workspacePath) + ' | tr -c "a-zA-Z0-9" "-")',
-    'base="$HOME/.claude/projects"',
-    'best=""',
-    'for d in "$base"/*/; do',
-    '  n=$(basename "$d")',
-    '  case "$n" in *"$enc"*) best="$d";; esac',
-    "done",
-    '[ -z "$best" ] && exit 0',
-    'for f in "$best"*.jsonl; do',
-    '  [ -f "$f" ] || continue',
-    '  id=$(basename "$f" .jsonl)',
-    '  ts=$(stat -c %Y "$f" 2>/dev/null || echo 0)',
-    '  title=$(head -c 6000 "$f" | grep -o "\\"content\\":\\"[^\\"]\\{1,60\\}" | head -1 | cut -c12-)',
-    '  printf "%s\\t%s\\t%s\\n" "$id" "$ts" "$title"',
-    'done | sort -t "\t" -k2 -rn | head -30',
-  ].join("\n");
-  const r = await sshRun(link, wslBashPayload(distro, script));
+    `ws=$(printf %s ${wsQ})`,
+    ...(has("claude") || has("omp")
+      ? ['enc=$(printf %s "$ws" | tr -c "a-zA-Z0-9" "-")']
+      : []),
+    ...(has("claude")
+      ? [
+          'best=""',
+          'for d in "$HOME/.claude/projects"/*/; do',
+          '  case "$(basename "$d")" in "$enc"|"$enc"-*) best="$d";; esac',
+          "done",
+          'if [ -n "$best" ]; then',
+          '  for f in "$best"*.jsonl; do',
+          '    [ -f "$f" ] || continue',
+          '    ts=$(stat -c %Y "$f" 2>/dev/null || echo 0)',
+          '    title=$(head -c 6000 "$f" | grep -a -o "\\"content\\":\\"[^\\"]\\{1,60\\}" | head -1 | cut -c12-)',
+          '    printf \'claude\\t%s\\t%s\\t%s\\t%s\\n\' "$(basename "$f" .jsonl)" "$ts" "$title" "$f"',
+          '  done',
+          "fi",
+        ]
+      : []),
+    ...(has("omp")
+      ? [
+          // 真机实证:omp 会话在 ~/.omp/agent/sessions/<编码>/,编码 =
+          // 工作区剥 $HOME/ 前缀后 / → -(前导 -;ws=$HOME 时为 "-");
+          // 文件名 <时间戳>_<id>.jsonl;标题取首行 "type":"title"。
+          'oenc="-$(printf %s "${ws#"$HOME"/}" | tr / -)"',
+          '[ "$ws" = "$HOME" ] && oenc="-"',
+          'for f in "$HOME/.omp/agent/sessions/$oenc"/*.jsonl; do',
+          '  [ -f "$f" ] || continue',
+          '  ts=$(stat -c %Y "$f" 2>/dev/null || echo 0)',
+          '  id=$(basename "$f" .jsonl | sed "s/^[^_]*_//")',
+          '  title=$(head -c 500 "$f" | grep -a -o \'"title":"[^"]\\{1,60\\}"\' | head -1 | cut -d\'"\' -f4)',
+          '  [ -n "$title" ] || title=$(grep -a -m1 \'"role":"user"\' "$f" | grep -a -o \'"text":"[^"]\\{1,60\\}\' | sed \'s/.*"text":"//\' | grep -v "^<" | head -1)',
+          '  printf \'omp\\t%s\\t%s\\t%s\\t%s\\n\' "$id" "$ts" "$title" "$f"',
+          "done",
+        ]
+      : []),
+    ...(has("codex")
+      ? [
+          'for f in "$HOME"/.codex/sessions/*/*/*/rollout-*.jsonl; do',
+          '  [ -f "$f" ] || continue',
+          '  meta=$(head -c 800 "$f")',
+          '  cwd=$(printf %s "$meta" | grep -a -o \'"cwd":"[^"]*"\' | head -1 | cut -d\'"\' -f4)',
+          '  case "$cwd" in "$ws"|"$ws"/*) ;; *) continue;; esac',
+          '  id=$(printf %s "$meta" | grep -a -o \'"session_id":"[^"]*"\' | head -1 | cut -d\'"\' -f4)',
+          '  [ -n "$id" ] || continue',
+          '  ts=$(stat -c %Y "$f" 2>/dev/null || echo 0)',
+          '  title=$(head -c 200000 "$f" | grep -a -o \'"input_text","text":"[^"]\\{1,60\\}\' | sed \'s/.*"text":"//\' | grep -v "^<" | head -1)',
+          '  printf \'codex\\t%s\\t%s\\t%s\\t%s\\n\' "$id" "$ts" "$title" "$f"',
+          'done',
+        ]
+      : []),
+  ];
+  const r = await sshRun(
+    link,
+    wslBashPayload(distro, `{\n${script.join("\n")}\n} | sort -t "\t" -k3 -rn | head -30`),
+  );
   return stripWslWarnings(r.stdout)
     .split(/\r?\n/)
     .map((l) => l.replace(/\r$/, "").split("\t"))
-    .filter((c) => c.length >= 2 && c[0])
+    .filter((c) => c.length >= 4 && c[1])
     .map((c) => ({
-      sessionId: c[0] ?? "",
-      updatedAt: Number(c[1]) * 1000 || 0,
-      title: c[2] || "",
+      engine: c[0] ?? "",
+      sessionId: c[1] ?? "",
+      updatedAt: Number(c[2]) * 1000 || 0,
+      // JSON 字符串里的字面 \n 转义(「做个项目分析\n」)压成空格。
+      title: (c[3] || "").replace(/\\n/g, " ").trim(),
+      path: c[4] || "",
     }));
-}
-
-/** 按行解析不过滤(tmd 行为;插件内一律走 parseProbeRows)。 */
-export function parseProbeLines(text: string): EngineProbe[] {
-  const out: EngineProbe[] = [];
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line) continue;
-    const i = line.indexOf(":");
-    if (i <= 0) continue;
-    const bin = line.slice(0, i);
-    const path = line.slice(i + 1);
-    out.push({ bin, path: path && !path.startsWith("/mnt/") ? path : null });
-  }
-  return out;
-}
-
-/** 发行版内引擎探针(本机)。`-e` 直 exec 不过 shell,argv 逐字透传(无引号损耗)。 */
-export async function probeEngines(distro: string, bins: string[]): Promise<EngineProbe[]> {
-  for (const b of bins) assertSafeToken("binary 名", b);
-  const r = await execRun(BIN, ["-d", distro, "-e", "bash", "-c", engineProbeScript(bins)], 60_000);
-  return parseProbeRows(r.stdout, bins);
 }
 
 /** b64 载荷（对齐 Rust wsl_bash_payload）：b64 字符集对宿主 PowerShell/cmd 完全
@@ -366,7 +412,7 @@ function sshAuthError(text: string): string | null {
 
 /** 单次远程执行。无密码 = ssh BatchMode（argv 直传）；有密码 = expect 包 ssh。
  *  Windows 客户端通常没有 expect，spawn 失败走下方 ENOENT 翻译。 */
-async function sshRun(link: SshLink, remote: string): Promise<{ code: number | null; stdout: string }> {
+async function sshRunOnce(link: SshLink, remote: string): Promise<{ code: number | null; stdout: string }> {
   const { target, password, controlPath } = link;
   assertTarget(target);
   if (!password || controlPath) {
@@ -391,6 +437,16 @@ async function sshRun(link: SshLink, remote: string): Promise<{ code: number | n
   return splitWslExit(r.stdout);
 }
 
+/** 远程执行:ControlMaster 套接字失效(ControlPersist 到期/宿主休眠)时 ssh
+ *  以 255 失败且不会回落直连 —— 剥掉 ControlPath 重试一次自愈;255 也可能
+ *  来自远端命令本身,重试无害(结果一致)。 */
+async function sshRun(link: SshLink, remote: string): Promise<{ code: number | null; stdout: string }> {
+  if (!link.controlPath) return sshRunOnce(link, remote);
+  const r = await sshRunOnce(link, remote);
+  if (r.code !== 255) return r;
+  return sshRunOnce({ ...link, controlPath: undefined }, remote);
+}
+
 /** 发行版内引擎探针（远程，b64 载荷过宿主 shell）。 */
 export async function probeEnginesRemote(
   distro: string,
@@ -402,19 +458,25 @@ export async function probeEnginesRemote(
   return parseProbeRows(r.stdout, bins);
 }
 
-/** 路径白名单(tmd 级 + 空格):`[A-Za-z0-9_./~ -]`;`~` 起始可用,禁引号/
- *  控制字符。脚本里经 shellSafePath 排布 —— 无空格不加引号直排(bash 原生
- *  tilde 展开,tmd 2026-09-13 真机形态),含空格才单引号包裹(内容白名单
- *  已保证无单引号,包裹恒安全)。 */
+/** 路径结构校验:允许任意 Unicode 文件名(中文/空格/引号);只挡空路径、
+ *  控制字符与非 `~`/`/` 起始形态。防注入靠 quoteRemotePath 的单引号包裹,
+ *  不再走 tmd 的 ASCII 白名单(tmd 为此不支持中文/空格路径,插件需支持)。 */
 function assertSafePath(path: string): void {
-  if (path.length === 0 || /[^A-Za-z0-9_./~ -]/.test(path)) {
-    throw new Error("路径含不支持的字符(引号与控制字符)");
+  if (path.length === 0 || !/^[~/]/.test(path) || /[\0-\x1f]/.test(path)) {
+    throw new Error(`路径形态不支持: ${JSON.stringify(path.slice(0, 80))}`);
   }
 }
 
-/** assertSafePath 通过后的脚本排布:见上。 */
-export function shellSafePath(path: string): string {
-  return / /.test(path) ? `'${path}'` : path;
+/** 任意文件名的脚本排布:`~/a b` → `"$HOME"/'a b'`(`$HOME` 双引号展开,
+ *  余段单引号包裹、`'` 按 bash 惯例翻成 `'\''`;绝对路径整段单引号)。
+ *  与 tmd 的无引号白名单形态二选一:本插件取引号形态换 Unicode 支持。 */
+function quoteRemotePath(path: string): string {
+  assertSafePath(path);
+  const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+  if (path === "~") return '"$HOME"';
+  if (path.startsWith("~/")) return `"${"$HOME"}"/${q(path.slice(2))}`;
+  if (path.startsWith("/")) return q(path);
+  throw new Error(`路径必须是 ~ 或 / 起始: ${path}`);
 }
 
 /** 目录懒加载(`ls -1ap`:目录带尾 `/`;`--` 挡 `-` 开头路径;过滤 . / ..)。
@@ -424,6 +486,7 @@ export interface DirEntry {
   name: string;
   isDir: boolean;
 }
+
 
 /** wsl.exe 包装层警告行(NAT 提示等,常为乱码),任何解析前剥除。
  *  警告段是 UTF-16LE,经 lossy 后 NUL 夹杂 —— 必须先剥 NUL 再匹配
@@ -438,7 +501,7 @@ function stripWslWarnings(text: string): string {
 export async function listDirRemote(link: SshLink, distro: string, path: string): Promise<DirEntry[]> {
   assertSafeToken("发行版名", distro);
   assertSafePath(path);
-  const r = await sshRun(link, wslBashPayload(distro, `ls -1ap -- ${shellSafePath(path)}`));
+  const r = await sshRun(link, wslBashPayload(distro, `ls -1ap -- ${quoteRemotePath(path)}`));
   if (r.code !== null && r.code !== 0) {
     throw new Error(`目录不存在或不可读: ${path}(code=${r.code})`);
   }
@@ -451,7 +514,7 @@ export async function listDirRemote(link: SshLink, distro: string, path: string)
 
 /** 远程文件文本读取(对齐 Rust wsl_read_file_text 协议:首个 size= 行 + b64;
  *  杂散 wsl 警告行跳过)。超 maxBytes 截断(truncated=true,不返回内容)。 */
-export interface RemoteFileText {
+interface RemoteFileText {
   size: number;
   content: string | null;
   truncated: boolean;
@@ -465,19 +528,37 @@ export async function readFileRemote(
 ): Promise<RemoteFileText> {
   assertSafeToken("发行版名", distro);
   assertSafePath(path);
-  const p = shellSafePath(path);
-  const script = `[ -f ${p} ] || {{ echo missing; exit 0; }}; sz=$(wc -c < ${p}); echo "size=$sz"; if [ "$sz" -le ${maxBytes} ]; then base64 < ${p}; fi`;
+  const p = quoteRemotePath(path);
+  const max = Math.min(Math.max(maxBytes, 1), 4 * 1024 * 1024);
+  // 行协议对齐 tmd wsl_read_file_text:size=<n> 行 + base64 段;目录/缺失/
+  // 不可读 → wc 失败 exit 9(如实报错);超限不读内容([ ] && 跳过 base64)。
+  const script = `s=$(wc -c < ${p}) || exit 9; echo size=$s; [ "$s" -le ${max} ] && head -c ${max} ${p} | base64; true`;
   const r = await sshRun(link, wslBashPayload(distro, script));
+  if (r.code === 9) throw new Error("不是常规文件或不可读");
   const text = stripWslWarnings(r.stdout);
-  if (/^missing$/m.test(text.trim())) throw new Error("文件不存在");
-  const m = /size=(\d+)/.exec(text);
-  if (!m) throw new Error("无法读取文件大小");
-  const size = Number(m[1]);
-  if (size > maxBytes) return { size, content: null, truncated: true };
-  // 取首个 size= 行之后的全部内容,拼回 b64(base64 输出可能被 PTY 折行,剥空白)
-  const b64 = text.slice((m.index ?? 0) + m[0].length).replace(/[\s]/g, "");
+  let size: number | null = null;
+  const b64: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (size === null) {
+      if (line.startsWith("size=")) {
+        const n = Number(line.slice(5));
+        if (!Number.isFinite(n)) throw new Error(`远程文件 size 非法: ${line.slice(5)}`);
+        size = n;
+      }
+      continue;
+    }
+    b64.push(line.trim());
+  }
+  if (size === null) {
+    // 原样带出输出头:客户端内偶发空/杂散输出时,黑匣子能直接看到真凶。
+    throw new Error(
+      `远程文件读取输出异常(code=${r.code ?? "?"}): ${JSON.stringify(text.slice(0, 200))}`,
+    );
+  }
+  const b64Flat = b64.join("");
+  if (!b64Flat) return { size, content: null, truncated: true };
   try {
-    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const bytes = Uint8Array.from(atob(b64Flat), (c) => c.charCodeAt(0));
     return { size, content: new TextDecoder("utf-8", { fatal: false }).decode(bytes), truncated: false };
   } catch {
     throw new Error("文件内容解码失败");

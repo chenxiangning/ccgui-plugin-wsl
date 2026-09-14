@@ -10,7 +10,7 @@
   --wsl-fg-subtle: #767676;
   --wsl-fg-faint: #b0b0b0;
   --wsl-border: #cecece;
-  --wsl-bg-elevated: #ffffff;
+  --wsl-bg-popover: #ffffff;
   --wsl-bg-input: #fbfbfb;
   --wsl-bg-hover: #f2f2f2;
   --wsl-accent: #005fb8;
@@ -28,7 +28,7 @@
   --wsl-fg-subtle: #8b8b8b;
   --wsl-fg-faint: #5c5c5c;
   --wsl-border: rgba(255, 255, 255, 0.13);
-  --wsl-bg-elevated: rgba(255, 255, 255, 0.035);
+  --wsl-bg-popover: #1f1f1f;
   --wsl-bg-input: rgba(255, 255, 255, 0.06);
   --wsl-bg-hover: rgba(255, 255, 255, 0.08);
   --wsl-accent: #4daafc;
@@ -323,11 +323,6 @@
 }
 
 /* ---- 添加 WSL 工作区页(tmd AddWslTab 同款类名) ---- */
-.wsl-addpage {
-  max-width: 620px;
-  margin: 0 auto;
-  padding: 4px 2px;
-}
 .wsl-field {
   display: flex;
   align-items: center;
@@ -431,8 +426,6 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  border: 1px solid var(--wsl-border);
-  border-radius: var(--wsl-radius-sm);
   padding: 2px;
 }
 .wsl-file-row {

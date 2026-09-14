@@ -149,17 +149,21 @@ export function WslRemoteSection({
     setError(null);
     setOpenDistro(null);
     try {
-      let r = await probeRemote(link(selected));
-      if (r?.available && selected.password && !selected.controlPath) {
-        // 密码用户:连接成功即建立 ControlMaster,此后探针/宿主引擎 spawn 免密。
-        const cp = await ensureControlMaster(link(selected), selected.id);
+      let l = link(selected);
+      if (selected.password) {
+        // 密码用户:连接即确保 ControlMaster 新鲜(存活走 -O check 快路径;
+        // 到期/陈旧自动重建)—— 此后探针/宿主引擎 spawn 免密。
+        const cp = await ensureControlMaster(l, selected.id);
         if (cp) {
-          updatePrefs({
-            hosts: hosts.map((x) => (x.id === selected.id ? { ...x, controlPath: cp } : x)),
-          });
-          r = await probeRemote({ target: link(selected).target, controlPath: cp });
+          if (cp !== selected.controlPath) {
+            updatePrefs({
+              hosts: hosts.map((x) => (x.id === selected.id ? { ...x, controlPath: cp } : x)),
+            });
+          }
+          l = { target: l.target, controlPath: cp };
         }
       }
+      const r = await probeRemote(l);
       const eff = r?.available ? r : import.meta.env.DEV ? DEV_REMOTE_FALLBACK : null;
       setInfo(eff);
       /* 连接成功即自动展开默认发行版的探针面板(tmd 2026-09-14:免二次点击)。 */

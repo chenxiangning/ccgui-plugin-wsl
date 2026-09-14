@@ -76,9 +76,6 @@ export interface Copy {
   addPageDesc: string;
   noHosts: string;
   hostMountMissing: string;
-  sessionStripTitle: string;
-  sessionNone: string;
-  sessionOpenFailed: string;
 }
 
 export function copy(locale: string): Copy {
@@ -145,9 +142,6 @@ export function copy(locale: string): Copy {
       addPageDesc: "选择远程宿主与发行版目录,登记进工作区列表。",
       noHosts: "还没有远程宿主:先在「WSL 主机」设置里添加",
       hostMountMissing: "宿主不支持工作区登记(需更新 codemoss 与插件运行时),仅本地标记。",
-      sessionStripTitle: "claude 会话",
-      sessionNone: "(无会话记录)",
-      sessionOpenFailed: "打开会话失败(宿主需升级到 0.3.3 且该会话已被宿主收录)。",
     };
   }
   return {
@@ -217,8 +211,5 @@ export function copy(locale: string): Copy {
     addPageDesc: "Pick a remote host and a distro directory, then register it into the workspace list.",
     noHosts: "No remote hosts yet — add one in the WSL Hosts settings first",
     hostMountMissing: "Host does not support workspace registration (update codemoss); local mark only.",
-    sessionStripTitle: "claude sessions",
-    sessionNone: "(no sessions)",
-    sessionOpenFailed: "Failed to open session (host needs SDK 0.3.3 and the session must be known to the host).",
   };
 }

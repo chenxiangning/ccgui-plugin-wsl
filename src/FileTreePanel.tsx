@@ -6,32 +6,24 @@ import { getFileTreeIconSvg } from "./fileIcons";
  */
 import { useCallback, useEffect, useState } from "react";
 import { copy, getHostCtx, type Copy } from "./host";
-import { loadPrefs, type WslPrefs } from "./store";
-import { listDirRemote, readFileRemote, type DirEntry, type SshLink } from "./wsl";
+import { joinPath, linkOf, loadPrefs, type WslPrefs, type WslWorkspaceMeta } from "./store";
+import { ensureRemoteFileHook } from "./remoteFiles";
+import { ensureWorkspaceUIHook } from "./workspaceUI";
+import {
+  listDirRemote,
+  readFileRemote,
+  type DirEntry,
+  type SshLink,
+} from "./wsl";
 
 const PREVIEW_MAX_BYTES = 512 * 1024;
 
-interface WslWorkspaceMeta {
-  hostId: string;
-  distro: string;
-}
+
 
 /** path → wsl 元数据(prefs.workspaces)。 */
 function metaFor(prefs: WslPrefs | null, workspacePath: string): WslWorkspaceMeta | null {
   if (!prefs) return null;
   return prefs.workspaces?.[workspacePath] ?? null;
-}
-
-function linkOf(prefs: WslPrefs, meta: WslWorkspaceMeta): SshLink | null {
-  const host = prefs.hosts.find((h) => h.id === meta.hostId);
-  if (!host) return null;
-  return { target: { host: host.host, port: host.port, user: host.user }, password: host.password || undefined };
-}
-
-/** 打开 distro 内路径:workspacePath = "/home/x/proj" 形态;根目录取 distro 根。 */
-function joinPath(base: string, name: string): string {
-  if (base === "/") return `/${name}`;
-  return `${base.replace(/\/+$/, "")}/${name}`;
 }
 
 export function FileTreePanel({ workspacePath, locale }: { workspacePath: string; locale: string }) {
@@ -62,7 +54,17 @@ export function FileTreePanel({ workspacePath, locale }: { workspacePath: string
   return <Tree link={link} distro={meta.distro} root={workspacePath} locale={locale} />;
 }
 
-function Tree({ link, distro, root, locale }: { link: SshLink; distro: string; root: string; locale: string }) {
+function Tree({
+  link,
+  distro,
+  root,
+  locale,
+}: {
+  link: SshLink;
+  distro: string;
+  root: string;
+  locale: string;
+}) {
   const t = copy(locale);
   // 图 1 头部形态:● Ubuntu · 192.168.1.7(远程显 host;本机链路无 host 段)
   const hostTail = link.controlPath ? "" : `${link.target.user}@${link.target.host}`;
@@ -92,10 +94,13 @@ function Tree({ link, distro, root, locale }: { link: SshLink; distro: string; r
   );
 
   useEffect(() => {
+    ensureRemoteFileHook();
+    ensureWorkspaceUIHook();
     void load(root);
   }, [load, root]);
 
   const openFile = async (path: string) => {
+    ensureRemoteFileHook();
     setError(null);
     // 首选宿主中央编辑器(客户端已接入的文件开启流);经 remote-files 桥
     // 由 activate 注册的读取器供内容(只读)。桥缺失/读失败回落内置预览。
@@ -254,6 +259,7 @@ export function fileCopy(locale: string): Pick<Copy, "refresh"> & { notWsl: stri
     ? { refresh: "刷新", notWsl: "非 WSL 工作区" }
     : { refresh: "Refresh", notWsl: "Not a WSL workspace" };
 }
+
 
 // getHostCtx 引用保持(tree 未来需要 bridge 扩展时不必改 import 面)
 void getHostCtx;

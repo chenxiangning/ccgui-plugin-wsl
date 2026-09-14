@@ -11,8 +11,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { copy } from "./host";
-import { addWorkspaceToHost } from "./AddWorkspacePage";
-import type { WslPrefs, WslWorkspaceMeta } from "./store";
+import { addWorkspaceToHost, joinPath, type WslPrefs, type WslWorkspaceMeta } from "./store";
 import {
   listDirRemote,
   probeEnginesRemote,
@@ -22,12 +21,6 @@ import {
   type SshLink,
   type WslDistro,
 } from "./wsl";
-
-function joinPath(base: string, name: string): string {
-  if (base === "/" ) return `/${name}`;
-  if (base === "~") return `~/${name}`;
-  return `${base.replace(/\/+$/, "")}/${name}`;
-}
 
 export function DistroPanel({
   distro,
