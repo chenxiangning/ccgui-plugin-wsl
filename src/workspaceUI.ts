@@ -39,7 +39,8 @@ export function registerWorkspaceUIHook(): void {
     },
     labelSuffix(workspacePath) {
       const prefs = cachedPrefs();
-      return prefs && matchWorkspace(prefs, workspacePath) ? " · WSL" : null;
+      // 徽章文本:宿主渲染成 .ws-label-badge chip,样式由本插件 injectCss 注入。
+      return prefs && matchWorkspace(prefs, workspacePath) ? "WSL" : null;
     },
   });
   registered = true;

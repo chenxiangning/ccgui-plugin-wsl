@@ -548,3 +548,19 @@
   gap: 8px;
   margin-top: 10px;
 }
+
+/* 侧栏工作区行徽章:宿主 repo-tree 渲染 .ws-label-badge chip,样式归插件。 */
+.ws-label-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1px solid rgba(59, 130, 246, 0.55);
+  color: #6ea8fe;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.4px;
+  user-select: none;
+}
