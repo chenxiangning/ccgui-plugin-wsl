@@ -2,7 +2,7 @@
 # 发版收口脚本:本地校验 → 构建 → 计算资产 SHA-256 → 打 tag 推送。
 #
 # tag 推上去后 .github/workflows/release.yml 会重新构建并把 main.js /
-# manifest.json / styles.css 挂到 GitHub Release(tag 名必须等于
+# manifest.json 挂到 GitHub Release(样式已内联 main.js,无独立 CSS 资产)(tag 名必须等于
 # manifest.json 的 version,workflow 里有强校验)。
 #
 # 市场安装链(宿主 plugins/market.rs):索引仓
@@ -58,7 +58,8 @@ node -e "
     minAppVersion: m.minAppVersion,
     sdkVersion: m.sdkVersion,
     permissions: m.permissions,
-    sha256: Object.fromEntries(['main.js', 'manifest.json', 'styles.css'].map(f => [f, sha(f)])),
+    // 样式经 ?raw 内联进 main.js(injectCss 应用),styles.css 不是分发资产。
+    sha256: Object.fromEntries(['main.js', 'manifest.json'].map(f => [f, sha(f)])),
   };
   fs.writeFileSync('dist/market/plugins-wsl.json', JSON.stringify(detail, null, 2) + '\n');
 "
