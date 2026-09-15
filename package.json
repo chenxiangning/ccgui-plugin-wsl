@@ -1,6 +1,6 @@
 {
   "name": "ccgui-plugin-wsl",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "private": true,
   "description": "CC GUI 插件：WSL 发行版管理器，发行版诊断/操作/引擎探针/远程探测",
   "type": "module",
