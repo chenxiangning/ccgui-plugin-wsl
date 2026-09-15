@@ -1,8 +1,14 @@
+# 发版流水线（Obsidian 同款约定：tag = manifest version，无 v 前缀 ——
+# 宿主 market.rs 按裸版本拼 releases/download/{version}/{asset} URL,
+# v 前缀 tag 会让市场安装 404）。触发同时接受 "1.2.0"(市场规范约定)
+# 与 "v1.2.0"(剥前缀比对,但请用无前缀,否则 Release tag 名仍会断链)。
 name: Release
 
 on:
   push:
-    tags: ["*"]
+    tags:
+      - "v*"
+      - "[0-9]*"
 
 permissions:
   contents: write
@@ -26,9 +32,15 @@ jobs:
           TAG="${GITHUB_REF_NAME#v}"
           VER=$(node -p "require('./manifest.json').version")
           [ "$TAG" = "$VER" ] || { echo "tag $TAG != manifest version $VER"; exit 1; }
+      - name: Generate checksums
+        # 索引仓 plugins/wsl.json 的 sha256 从这里抄(模板同款约定)。
+        run: |
+          sha256sum main.js manifest.json > checksums.txt
+          cat checksums.txt
       - name: Attach artifacts to release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             main.js
             manifest.json
+            checksums.txt

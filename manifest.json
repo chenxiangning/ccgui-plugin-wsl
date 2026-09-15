@@ -2,7 +2,7 @@
   "id": "wsl",
   "name": "WSL 管理器",
   "version": "0.4.5",
-  "sdkVersion": "^0.3",
+  "sdkVersion": ">=0.3.4",
   "minAppVersion": "1.0.0",
   "author": "chenxiangning",
   "repo": "chenxiangning/ccgui-plugin-wsl",
@@ -17,6 +17,7 @@
     "exec:ssh",
     "exec:expect",
     "host:workspace",
+    "host:workspace:remote",
     "host:session",
     "ui:add-menu",
     "ui:page"

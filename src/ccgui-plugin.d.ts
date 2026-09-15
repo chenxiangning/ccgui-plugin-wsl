@@ -6,7 +6,7 @@
  * 插件仓用法（包未发布 npm 前的过渡方案）：复制本文件为插件仓的
  * `src/ccgui-plugin.d.ts`，首行版本戳必须与所用宿主 SDK 一致。
  *
- * @ccgui/plugin-sdk v0.3.2
+ * @ccgui/plugin-sdk v0.3.4
  */
 
 /** 宿主实现的 SDK 契约版本。 */
@@ -20,6 +20,19 @@ export type PluginTier = "declarative" | "js";
 
 /** 插件入口唯一约定：main.js 默认导出本函数。 */
 export type PluginActivate = (ctx: PluginContext) => void | (() => void);
+
+/** 外部会话源行(ctx.sessions.registerSource,0.3.4 起):插件上报的
+ *  远端/容器内会话摘要。workspacePath 必须是已登记工作区的 path,否则
+ *  宿主合并时丢弃(侧栏按 workspacePath 分组)。 */
+export interface ExternalSessionRow {
+  engine: string;
+  sessionId: string;
+  workspacePath: string;
+  title?: string;
+  updatedAt?: number | null;
+  /** 远端 jsonl 绝对路径(可选;宿主历史回放经远程通道拉取)。 */
+  remotePath?: string;
+}
 
 export interface JsonSchemaProperty {
   type?: "string" | "number" | "integer" | "boolean";
@@ -158,10 +171,37 @@ export interface PluginContext {
     on(topic: string, cb: (data: unknown) => void): Disposer;
     emit(topic: string, data: unknown): void;
   };
-  /** 聊天输入框（composer）草稿写入（权限 composer:draft，0.3.2 起）。
-   *  写入即替换当前活动会话的草稿；不触发发送——发送永远是用户动作。 */
+  /** 聊天输入框(composer)草稿写入(权限 composer:draft,0.3.2 起)。
+   *  写入即替换当前活动会话的草稿;不触发发送——发送永远是用户动作。 */
   composer: {
     setDraft(text: string): void;
+  };
+  /** 工作区登记(权限 host:workspace,0.3.3 起)。把任意路径登记为侧栏
+   *  工作区——不要求本机存在该目录(如经 ssh 管理的远程机/WSL 发行版内
+   *  路径)。meta 透传存储在宿主工作区行上(如 { wsl: { hostId, distro } }),
+   *  会话/文件等宿主能力按需消费;形状由写入方与消费方约定。
+   *
+   *  meta 携带 `wsl` 键(远程工作区,宿主引擎经 ssh 把会话流量导到
+   *  meta.wsl 指定的主机与发行版)需要额外权限 `host:workspace:remote`
+   *  (0.3.4 起)——这等效于出网 + 远程执行导向,远超登记一行侧栏数据。
+   *  信任权衡:远程通道首连采用 StrictHostKeyChecking=accept-new
+   *  (首连自动记录 host key,之后变更才拒绝),插件作者应知晓这是
+   *  TOFU 而非严格 pinning。 */
+  workspaces: {
+    add(path: string, meta?: Record<string, unknown>): Promise<void>;
+  };
+  /** 会话打开 + 外部会话源(权限 host:session;selectSession 0.3.3 起,
+   *  registerSource 0.3.4 起)。registerSource:登记异步会话源,宿主在会话
+   *  目录刷新时调用 list() 并把行合并进侧栏列表——本机扫描结果优先,同
+   *  engine/sessionId/workspacePath 的外部行被丢弃。返回 Disposer,插件
+   *  卸载时自动注销。 */
+  sessions: {
+    selectSession(engine: string, sessionId: string, workspacePath: string): Promise<void>;
+    registerSource(def: {
+      /** 源 id,插件内唯一;同 id 重复登记覆盖(热重载语义)。 */
+      id: string;
+      list: () => Promise<ExternalSessionRow[]>;
+    }): Disposer;
   };
   bridge: {
     /** 通用能力出口（0.3.0 起；旧的 `cmd:<command>` 逐命令授权机制已删除）。
