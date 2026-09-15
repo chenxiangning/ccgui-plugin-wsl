@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-/** 宿主已知的基座权限（15 项；未知权限 = 安装拒绝）。 */
+/** 宿主已知的基座权限（18 项；未知权限 = 安装拒绝）。 */
 const KNOWN_PERMISSIONS = new Set([
   "storage",
   "ui:settings-section",
@@ -27,6 +27,7 @@ const KNOWN_PERMISSIONS = new Set([
   "network:none",
   "composer:draft",
   "host:workspace",
+  "host:workspace:remote",
   "host:session",
 ]);
 
@@ -36,7 +37,7 @@ const NETWORK_GRANT_RE = /^([A-Za-z0-9.-]+)(?::(\d+)(?:-(\d+))?)?$/;
 /** exec: 授权的二进制名：裸名，禁路径分隔符。 */
 const EXEC_BIN_RE = /^[A-Za-z0-9._-]+$/;
 
-/** 镜像宿主 isKnownPermission：基座 15 项，或形状合法的 network:/exec: 授权。 */
+/** 镜像宿主 isKnownPermission：基座 18 项，或形状合法的 network:/exec: 授权。 */
 function isKnownPermission(p) {
   if (KNOWN_PERMISSIONS.has(p)) return true;
   if (p.startsWith("network:")) {

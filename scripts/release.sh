@@ -32,7 +32,10 @@ if [ $# -ge 1 ]; then
 fi
 
 VERSION=$(node -p "require('./manifest.json').version")
-TAG="v$VERSION"
+# 市场规范:tag = manifest version,无 v 前缀 —— 宿主 market.rs 的下载 URL
+# 是 releases/download/{version}/{asset},带 v 的 tag 会让市场安装 404
+# (v0.4.5 那次发版即踩此坑;模板 release.yml 注释同款约定)。
+TAG="$VERSION"
 
 # ── 前置:干净工作区 + 代码校验 + 构建 ──
 [ -z "$(git status --porcelain)" ] || { echo "✗ 工作区有未提交改动,先提交"; exit 1; }
